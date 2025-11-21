@@ -1,17 +1,17 @@
 """
-This script downloads historical 1-minute adjusted bar data for QQQ and NVDA
-from the Alpaca Market Data API for the date range 2020-01-01 → 2025-06-25.
+This script downloads historical 5-minute adjusted bar data for QQQ and NVDA
+from the Alpaca Market Data API for a configured date range (e.g. 2020-01-01 → 2025-06-25).
 It fetches the official US trading calendar, converts timestamps to US/Eastern,
-filters only regular market hours (09:30–16:00), removes duplicates, and writes
-the cleaned data as Parquet files.
+filters only regular market hours (09:30–16:00 ET), removes non-RTH bars,
+and writes one cleaned Parquet file per symbol.
 
 Inputs:
-- API Keys from ../../conf/keys.yaml
-- Params (data path, start/end dates) from ../../conf/params.yaml
+- API keys from ../../conf/keys.yaml
+- Parameters (DATA_PATH, START_DATE, END_DATE) from ../../conf/params.yaml
 - Ticker list: ["QQQ", "NVDA"]
 
 Outputs:
-- One cleaned Parquet file per symbol under <DATA_PATH>/Bars_1m_adj/
+- One Parquet per symbol under <DATA_PATH> (e.g. ../../data/raw/QQQ_5m.parquet)
 
 Requirements:
 - alpaca-py, pandas, pytz, pyyaml, pyarrow
@@ -21,7 +21,7 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import GetCalendarRequest
-from alpaca.data.timeframe import TimeFrame
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.data.enums import Adjustment
 
 import pandas as pd
@@ -31,55 +31,66 @@ import yaml
 import os
 
 # ============================================================
-# LOAD CONFIG
+# LOAD CONFIGURATION (API KEYS + PARAMETERS)
 # ============================================================
+# Load API credentials from YAML configuration file
 keys = yaml.safe_load(open("../../conf/keys.yaml"))
 API_KEY = keys["KEYS"]["APCA-API-KEY-ID-Data"]
 SECRET_KEY = keys["KEYS"]["APCA-API-SECRET-KEY-Data"]
 
+# Load data acquisition parameters from YAML configuration file
 params = yaml.safe_load(open("../../conf/params.yaml"))
 PATH_BARS = params["DATA_ACQUISITON"]["DATA_PATH"]
 START_DATE = datetime.strptime(params["DATA_ACQUISITON"]["START_DATE"], "%Y-%m-%d")
 END_DATE = datetime.strptime(params["DATA_ACQUISITON"]["END_DATE"], "%Y-%m-%d")
 
-# Ensure output directory exists
+# Ensure output directory exists (e.g. ../../data/raw)
 os.makedirs(PATH_BARS, exist_ok=True)
-# Ensure subdirectory for 1m bars exists
-os.makedirs(os.path.join(PATH_BARS, "Bars_1m_adj"), exist_ok=True)
-
 
 # ============================================================
-# INIT ALPACA CLIENTS
+# INITIALIZE ALPACA CLIENTS
 # ============================================================
+# Historical data client (market data)
 data_client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
+
+# Trading client (used here only to fetch the official US trading calendar)
 trading_client = TradingClient(API_KEY, SECRET_KEY)
 
 # ============================================================
-# DEFINE TICKERS
+# DEFINE TICKERS FOR THE PROJECT
 # ============================================================
-TICKERS = ["QQQ", "NVDA"]   # Only the assets needed for this project
+TICKERS = ["QQQ", "NVDA"]  # Main ETF + cross-asset driver
 
 # ============================================================
 # GET OFFICIAL US TRADING CALENDAR
 # ============================================================
+# Request the market calendar for the full date range
 cal_request = GetCalendarRequest(start=START_DATE, end=END_DATE)
 calendar = trading_client.get_calendar(cal_request)
 
-# Build lookup table: date → (market open, market close)
+# Build a lookup map: date -> (market_open_datetime, market_close_datetime) in US/Eastern
 cal_map = {}
 eastern = pytz.timezone("US/Eastern")
 
 for c in calendar:
+    # c.open and c.close are naive datetime objects in ET
     open_dt = eastern.localize(c.open)
     close_dt = eastern.localize(c.close)
     cal_map[c.date] = (open_dt, close_dt)
 
 # ============================================================
-# HELPER: CHECK IF TIMESTAMP IS DURING REGULAR MARKET HOURS
+# HELPER FUNCTION: CHECK IF TIMESTAMP IS DURING REGULAR HOURS
 # ============================================================
-def check_open(ts):
-    # Convert tz-naive timestamps to UTC → then to Eastern
-    ts_eastern = ts.tz_convert(eastern) if ts.tzinfo else ts.tz_localize("UTC").astimezone(eastern)
+def is_regular_trading_hour(ts):
+    """
+    Returns True if the given timestamp falls within regular trading hours
+    (market open to close) on a valid trading day, False otherwise.
+    """
+    # Convert timestamp to US/Eastern (Alpaca timestamps are in UTC by default)
+    if ts.tzinfo:
+        ts_eastern = ts.astimezone(eastern)
+    else:
+        ts_eastern = ts.tz_localize("UTC").astimezone(eastern)
 
     d = ts_eastern.date()
     if d not in cal_map:
@@ -89,63 +100,42 @@ def check_open(ts):
     return open_dt <= ts_eastern < close_dt
 
 # ============================================================
-# MAIN DATA ACQUISITION LOOP
+# MAIN DATA ACQUISITION LOOP (5-MINUTE BARS)
 # ============================================================
-print(f"Fetching 1m bars for QQQ + NVDA from {START_DATE} to {END_DATE}")
+print(f"Fetching 5-minute bars for {TICKERS} from {START_DATE} to {END_DATE}")
 
 for symbol in TICKERS:
-    print(f"Downloading {symbol}...")
+    print(f"Downloading 5m bars for {symbol}...")
 
-    # Step 1: Request 1-minute bars
+    # Step 1: Build request for 5-minute historical bars
     request = StockBarsRequest(
         symbol_or_symbols=symbol,
-        timeframe=TimeFrame.Minute,
-        adjustment=Adjustment.ALL,
+        timeframe=TimeFrame(5, TimeFrameUnit.Minute),  # 5-minute timeframe
+        adjustment=Adjustment.ALL,                     # adjust for splits/dividends
         start=START_DATE,
-        end=END_DATE
+        end=END_DATE,
     )
 
+    # Step 2: Fetch bars from Alpaca Market Data
     bars = data_client.get_stock_bars(request)
-    df = bars.df.reset_index()
+    df = bars.df.reset_index()  # MultiIndex -> columns, keep 'timestamp'
 
-    # Step 2: Remove duplicate symbols column (Alpaca adds it)
+    # Step 3: Drop 'symbol' column if present (not needed for single-symbol files)
     df = df.drop(columns=["symbol"], errors="ignore")
 
-    # Step 3: Mark only market-open timestamps
-    df["is_open"] = df["timestamp"].map(check_open)
+    # Step 4: Mark which rows occur during regular trading hours
+    df["is_rth"] = df["timestamp"].map(is_regular_trading_hour)
 
-    # Step 4: Filter Regular Trading Hours
-    df = df[df["is_open"]]
+    # Step 5: Filter only regular trading hours (RTH)
+    df = df[df["is_rth"]].copy()
 
-    # Step 5: Remove helper column
-    df = df.drop(columns=["is_open"])
+    # Step 6: Drop helper column
+    df.drop(columns=["is_rth"], inplace=True)
 
-    # Step 6: Save cleaned parquet (try engines, otherwise fallback to CSV)
-    out_dir = os.path.join(PATH_BARS, "Bars_1m_adj")
-    out_path = os.path.join(out_dir, f"{symbol}.parquet")
+    # Step 7: Save cleaned DataFrame as Parquet file
+    out_path = os.path.join(PATH_BARS, f"{symbol}_5m.parquet")
+    df.to_parquet(out_path, index=False)
 
-    saved_as_parquet = False
-    try:
-        # Prefer pyarrow, then fastparquet. Use importlib to avoid import errors at module import time.
-        import importlib
+    print(f"Saved: {out_path}")
 
-        if importlib.util.find_spec("pyarrow") is not None:
-            df.to_parquet(out_path, index=False, engine="pyarrow")
-            saved_as_parquet = True
-        elif importlib.util.find_spec("fastparquet") is not None:
-            df.to_parquet(out_path, index=False, engine="fastparquet")
-            saved_as_parquet = True
-        else:
-            # No parquet engine available
-            raise ImportError("No parquet engine ('pyarrow' or 'fastparquet') installed")
-    except Exception as e:
-        # Fallback: write CSV and inform the user how to enable parquet support
-        csv_out = os.path.join(out_dir, f"{symbol}.csv")
-        df.to_csv(csv_out, index=False)
-        print(f"Warning: could not write parquet ({e}). Saved CSV to: {csv_out}")
-        print("To enable Parquet output install pyarrow (recommended):\n    pip install pyarrow")
-
-    if saved_as_parquet:
-        print(f"Saved: {out_path}")
-
-print("Data acquisition completed successfully.")
+print("5-minute data acquisition completed successfully.")

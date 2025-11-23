@@ -188,11 +188,6 @@ for symbol in TICKERS:
     print(f"  Raw data rows: {len(df)}")
     print(f"  Raw date range: {df['timestamp'].min()} to {df['timestamp'].max()}")
     
-    # Save RAW data for debugging
-    raw_out_path = os.path.join(PATH_BARS, f"{symbol}_raw_debug.parquet")
-    df.to_parquet(raw_out_path, index=False)
-    print(f"  Saved RAW debug file: {raw_out_path}")
-
     # Filter RTH
     print(f"  Filtering for regular trading hours (09:30-16:00 ET)...")
     

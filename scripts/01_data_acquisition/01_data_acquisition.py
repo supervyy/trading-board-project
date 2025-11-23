@@ -7,25 +7,23 @@ and writes one cleaned Parquet file per symbol.
 
 Inputs:
 - API keys from ../../conf/keys.yaml
-- Parameters (DATA_PATH, START_DATE, END_DATE) from ../../conf/params.yaml
-- Ticker list: ["QQQ", "NVDA"]
+- Parameters (DATA_PATH, START_DATE) from ../../conf/params.yaml
+- Ticker list: ["QQQ", "NVDA", "AAPL", "MSFT", "GOOGL", "AMZN"]
 
 Outputs:
 - One Parquet per symbol under <DATA_PATH> (e.g. ../../data/raw/QQQ_1m.parquet)
+- Timestamps are stored as ISO-formatted strings (YYYY-MM-DD HH:MM:SS)
+- Columns: timestamp, open, high, low, close, volume, trade_count, vwap
 """
 
 import requests
 import pandas as pd
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 import pytz
 import yaml
 import os
 import time as time_module
 
-# ============================================================
-# LOAD CONFIGURATION (API KEYS + PARAMETERS)
-# ============================================================
-# Load API credentials from YAML configuration file
 # ============================================================
 # LOAD CONFIGURATION (API KEYS + PARAMETERS)
 # ============================================================
@@ -42,13 +40,9 @@ except Exception as e:
 try:
     params = yaml.safe_load(open("../../conf/params.yaml"))
     PATH_BARS = params["DATA_ACQUISITON"]["DATA_PATH"]
-    # --- CORRECTION STARTS HERE ---
-    # Make sure to import timezone if not already present
-    from datetime import timezone
     # Create timezone-aware datetime objects in UTC
     START_DATE = datetime.strptime(params["DATA_ACQUISITON"]["START_DATE"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
     END_DATE = datetime.now(timezone.utc)  # Use current time in UTC as the end date
-    # --- CORRECTION ENDS HERE ---
 except Exception as e:
     print(f"Error loading params.yaml: {e}")
     exit(1)
@@ -169,35 +163,31 @@ for symbol in TICKERS:
     # Process Data
     df = pd.DataFrame(all_bars)
     
-    # Rename columns
+    # Rename columns (including trade_count and vwap)
     df = df.rename(columns={
         "t": "timestamp",
         "o": "open",
         "h": "high",
         "l": "low",
         "c": "close",
-        "v": "volume"
+        "v": "volume",
+        "n": "trade_count",
+        "vw": "vwap"
     })
     
     # Keep relevant columns
-    df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+    df = df[["timestamp", "open", "high", "low", "close", "volume", "trade_count", "vwap"]]
     
-    # Convert timestamp immediately to see range
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    # Convert timestamp to ISO string format (YYYY-MM-DD HH:MM:SS)
+    # First convert to datetime with UTC, then format as string
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.strftime("%Y-%m-%d %H:%M:%S")
     
     print(f"  Raw data rows: {len(df)}")
     print(f"  Raw date range: {df['timestamp'].min()} to {df['timestamp'].max()}")
     
-    # Filter RTH
+    # Filter RTH (must convert string back to datetime for filtering)
     print(f"  Filtering for regular trading hours (09:30-16:00 ET)...")
     
-    # Debug: Check a sample of recent rows to see why they might fail
-    recent_rows = df.tail(5).copy()
-    for idx, row in recent_rows.iterrows():
-        ts = row['timestamp']
-        is_rth = is_regular_trading_hour(ts)
-        print(f"    Debug Check {ts}: RTH={is_rth}")
-
     df["is_rth"] = df["timestamp"].map(is_regular_trading_hour)
     df_filtered = df[df["is_rth"]].copy()
     

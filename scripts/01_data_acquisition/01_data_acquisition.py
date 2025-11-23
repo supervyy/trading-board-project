@@ -64,7 +64,7 @@ BASE_URL = "https://data.alpaca.markets/v2"
 # ============================================================
 # DEFINE TICKERS
 # ============================================================
-TICKERS = ["QQQ", "NVDA"]
+TICKERS = ["QQQ", "NVDA", "AAPL", "MSFT", "GOOGL", "AMZN"]
 
 # ============================================================
 # DEFINE REGULAR TRADING HOURS

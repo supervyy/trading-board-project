@@ -26,6 +26,10 @@ import time as time_module
 # LOAD CONFIGURATION (API KEYS + PARAMETERS)
 # ============================================================
 # Load API credentials from YAML configuration file
+# ============================================================
+# LOAD CONFIGURATION (API KEYS + PARAMETERS)
+# ============================================================
+# Load API credentials from YAML configuration file
 try:
     keys = yaml.safe_load(open("../../conf/keys.yaml"))
     API_KEY = keys["KEYS"]["APCA-API-KEY-ID-Data"]
@@ -38,8 +42,13 @@ except Exception as e:
 try:
     params = yaml.safe_load(open("../../conf/params.yaml"))
     PATH_BARS = params["DATA_ACQUISITON"]["DATA_PATH"]
-    START_DATE = datetime.strptime(params["DATA_ACQUISITON"]["START_DATE"], "%Y-%m-%d")
-    END_DATE = datetime.strptime(params["DATA_ACQUISITON"]["END_DATE"], "%Y-%m-%d")
+    # --- CORRECTION STARTS HERE ---
+    # Make sure to import timezone if not already present
+    from datetime import timezone
+    # Create timezone-aware datetime objects in UTC
+    START_DATE = datetime.strptime(params["DATA_ACQUISITON"]["START_DATE"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    END_DATE = datetime.now(timezone.utc)  # Use current time in UTC as the end date
+    # --- CORRECTION ENDS HERE ---
 except Exception as e:
     print(f"Error loading params.yaml: {e}")
     exit(1)

@@ -1,8 +1,8 @@
 """
-This script downloads historical 5-minute adjusted bar data for QQQ and NVDA
-from the Alpaca Market Data API for a configured date range (e.g. 2020-01-01 → 2025-06-25).
-It fetches the official US trading calendar, converts timestamps to US/Eastern,
-filters only regular market hours (09:30–16:00 ET), removes non-RTH bars,
+This script downloads historical 1-minute adjusted bar data for QQQ and NVDA
+from the Alpaca Market Data API for a configured date range.
+It uses direct HTTP requests (requests lib) to the Alpaca API to avoid SDK auth issues,
+converts timestamps to US/Eastern, filters only regular market hours (09:30–16:00 ET),
 and writes one cleaned Parquet file per symbol.
 
 Inputs:
@@ -11,131 +11,203 @@ Inputs:
 - Ticker list: ["QQQ", "NVDA"]
 
 Outputs:
-- One Parquet per symbol under <DATA_PATH> (e.g. ../../data/raw/QQQ_5m.parquet)
-
-Requirements:
-- alpaca-py, pandas, pytz, pyyaml, pyarrow
+- One Parquet per symbol under <DATA_PATH> (e.g. ../../data/raw/QQQ_1m.parquet)
 """
 
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
-from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import GetCalendarRequest
-from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-from alpaca.data.enums import Adjustment
-
+import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, time
 import pytz
 import yaml
 import os
+import time as time_module
 
 # ============================================================
 # LOAD CONFIGURATION (API KEYS + PARAMETERS)
 # ============================================================
 # Load API credentials from YAML configuration file
-keys = yaml.safe_load(open("../../conf/keys.yaml"))
-API_KEY = keys["KEYS"]["APCA-API-KEY-ID-Data"]
-SECRET_KEY = keys["KEYS"]["APCA-API-SECRET-KEY-Data"]
+try:
+    keys = yaml.safe_load(open("../../conf/keys.yaml"))
+    API_KEY = keys["KEYS"]["APCA-API-KEY-ID-Data"]
+    SECRET_KEY = keys["KEYS"]["APCA-API-SECRET-KEY-Data"]
+except Exception as e:
+    print(f"Error loading keys.yaml: {e}")
+    exit(1)
 
 # Load data acquisition parameters from YAML configuration file
-params = yaml.safe_load(open("../../conf/params.yaml"))
-PATH_BARS = params["DATA_ACQUISITON"]["DATA_PATH"]
-START_DATE = datetime.strptime(params["DATA_ACQUISITON"]["START_DATE"], "%Y-%m-%d")
-END_DATE = datetime.strptime(params["DATA_ACQUISITON"]["END_DATE"], "%Y-%m-%d")
+try:
+    params = yaml.safe_load(open("../../conf/params.yaml"))
+    PATH_BARS = params["DATA_ACQUISITON"]["DATA_PATH"]
+    START_DATE = datetime.strptime(params["DATA_ACQUISITON"]["START_DATE"], "%Y-%m-%d")
+    END_DATE = datetime.strptime(params["DATA_ACQUISITON"]["END_DATE"], "%Y-%m-%d")
+except Exception as e:
+    print(f"Error loading params.yaml: {e}")
+    exit(1)
 
-# Ensure output directory exists (e.g. ../../data/raw)
+# Ensure output directory exists
 os.makedirs(PATH_BARS, exist_ok=True)
 
 # ============================================================
-# INITIALIZE ALPACA CLIENTS
+# ALPACA API CONFIGURATION
 # ============================================================
-# Historical data client (market data)
-data_client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
-
-# Trading client (used here only to fetch the official US trading calendar)
-trading_client = TradingClient(API_KEY, SECRET_KEY)
+BASE_URL = "https://data.alpaca.markets/v2"
 
 # ============================================================
-# DEFINE TICKERS FOR THE PROJECT
+# DEFINE TICKERS
 # ============================================================
-TICKERS = ["QQQ", "NVDA"]  # Main ETF + cross-asset driver
+TICKERS = ["QQQ", "NVDA"]
 
 # ============================================================
-# GET OFFICIAL US TRADING CALENDAR
+# DEFINE REGULAR TRADING HOURS
 # ============================================================
-# Request the market calendar for the full date range
-cal_request = GetCalendarRequest(start=START_DATE, end=END_DATE)
-calendar = trading_client.get_calendar(cal_request)
-
-# Build a lookup map: date -> (market_open_datetime, market_close_datetime) in US/Eastern
-cal_map = {}
 eastern = pytz.timezone("US/Eastern")
+MARKET_OPEN = time(9, 30)
+MARKET_CLOSE = time(16, 0)
 
-for c in calendar:
-    # c.open and c.close are naive datetime objects in ET
-    open_dt = eastern.localize(c.open)
-    close_dt = eastern.localize(c.close)
-    cal_map[c.date] = (open_dt, close_dt)
-
-# ============================================================
-# HELPER FUNCTION: CHECK IF TIMESTAMP IS DURING REGULAR HOURS
-# ============================================================
-def is_regular_trading_hour(ts):
+def is_regular_trading_hour(ts_str):
     """
     Returns True if the given timestamp falls within regular trading hours
-    (market open to close) on a valid trading day, False otherwise.
+    (09:30-16:00 ET) on a weekday.
     """
-    # Convert timestamp to US/Eastern (Alpaca timestamps are in UTC by default)
+    # Parse timestamp string (Alpaca returns ISO format)
+    ts = pd.to_datetime(ts_str)
+    
+    # Convert to US/Eastern
     if ts.tzinfo:
         ts_eastern = ts.astimezone(eastern)
     else:
         ts_eastern = ts.tz_localize("UTC").astimezone(eastern)
 
-    d = ts_eastern.date()
-    if d not in cal_map:
+    # Check if it's a weekday (Monday=0, Sunday=6)
+    if ts_eastern.weekday() >= 5:  # Saturday or Sunday
         return False
-
-    open_dt, close_dt = cal_map[d]
-    return open_dt <= ts_eastern < close_dt
+    
+    # Check if time is within market hours
+    ts_time = ts_eastern.time()
+    return MARKET_OPEN <= ts_time < MARKET_CLOSE
 
 # ============================================================
-# MAIN DATA ACQUISITION LOOP (5-MINUTE BARS)
+# MAIN DATA ACQUISITION LOOP
 # ============================================================
-print(f"Fetching 5-minute bars for {TICKERS} from {START_DATE} to {END_DATE}")
+print(f"Fetching 1-minute bars for {TICKERS} from {START_DATE.date()} to {END_DATE.date()}")
 
 for symbol in TICKERS:
-    print(f"Downloading 5m bars for {symbol}...")
+    print(f"\nDownloading 1m bars for {symbol}...")
+    headers = {
+        "APCA-API-KEY-ID": API_KEY,
+        "APCA-API-SECRET-KEY": SECRET_KEY
+    }
+    
+    # Format dates for API
+    start_str = START_DATE.strftime("%Y-%m-%d")
+    end_str = END_DATE.strftime("%Y-%m-%d")
+    
+    all_bars = []
+    page_token = None
+    
+    while True:
+        # Request parameters
+        params_req = {
+            "start": start_str,
+            "end": end_str,
+            "timeframe": "1Min",
+            "limit": 10000,
+            "adjustment": "all",
+            "feed": "iex",  # Free IEX feed
+            "sort": "asc"   # Explicitly request oldest first
+        }
+        
+        if page_token:
+            params_req["page_token"] = page_token
+            
+        try:
+            response = requests.get(
+                f"{BASE_URL}/stocks/{symbol}/bars", 
+                headers=headers, 
+                params=params_req
+            )
+            
+            if response.status_code != 200:
+                print(f"  Error: {response.status_code} - {response.text}")
+                break
+                
+            data = response.json()
+            bars = data.get("bars", [])
+            
+            if not bars:
+                break
+                
+            all_bars.extend(bars)
+            
+            # Progress update
+            last_bar_time = bars[-1]['t']
+            print(f"  Fetched {len(bars)} bars. Total: {len(all_bars)}. Last timestamp: {last_bar_time}")
+            
+            page_token = data.get("next_page_token")
+            if not page_token:
+                break
+                
+            time_module.sleep(0.5) # Rate limit niceness
+            
+        except Exception as e:
+            print(f"  Exception fetching data: {e}")
+            break
 
-    # Step 1: Build request for 5-minute historical bars
-    request = StockBarsRequest(
-        symbol_or_symbols=symbol,
-        timeframe=TimeFrame(5, TimeFrameUnit.Minute),  # 5-minute timeframe
-        adjustment=Adjustment.ALL,                     # adjust for splits/dividends
-        start=START_DATE,
-        end=END_DATE,
-    )
+    if not all_bars:
+        print(f"  No data fetched for {symbol}. Check your API keys or date range.")
+        continue
 
-    # Step 2: Fetch bars from Alpaca Market Data
-    bars = data_client.get_stock_bars(request)
-    df = bars.df.reset_index()  # MultiIndex -> columns, keep 'timestamp'
+    # Process Data
+    df = pd.DataFrame(all_bars)
+    
+    # Rename columns
+    df = df.rename(columns={
+        "t": "timestamp",
+        "o": "open",
+        "h": "high",
+        "l": "low",
+        "c": "close",
+        "v": "volume"
+    })
+    
+    # Keep relevant columns
+    df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+    
+    # Convert timestamp immediately to see range
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    
+    print(f"  Raw data rows: {len(df)}")
+    print(f"  Raw date range: {df['timestamp'].min()} to {df['timestamp'].max()}")
+    
+    # Save RAW data for debugging
+    raw_out_path = os.path.join(PATH_BARS, f"{symbol}_raw_debug.parquet")
+    df.to_parquet(raw_out_path, index=False)
+    print(f"  Saved RAW debug file: {raw_out_path}")
 
-    # Step 3: Drop 'symbol' column if present (not needed for single-symbol files)
-    df = df.drop(columns=["symbol"], errors="ignore")
+    # Filter RTH
+    print(f"  Filtering for regular trading hours (09:30-16:00 ET)...")
+    
+    # Debug: Check a sample of recent rows to see why they might fail
+    recent_rows = df.tail(5).copy()
+    for idx, row in recent_rows.iterrows():
+        ts = row['timestamp']
+        is_rth = is_regular_trading_hour(ts)
+        print(f"    Debug Check {ts}: RTH={is_rth}")
 
-    # Step 4: Mark which rows occur during regular trading hours
     df["is_rth"] = df["timestamp"].map(is_regular_trading_hour)
+    df_filtered = df[df["is_rth"]].copy()
+    
+    print(f"  Rows after filtering: {len(df_filtered)} (Dropped {len(df) - len(df_filtered)})")
+    if not df_filtered.empty:
+        print(f"  Filtered date range: {df_filtered['timestamp'].min()} to {df_filtered['timestamp'].max()}")
+    
+    df_filtered.drop(columns=["is_rth"], inplace=True)
+    
+    # Save as Parquet
+    out_path = os.path.join(PATH_BARS, f"{symbol}_1m.parquet")
+    df_filtered.to_parquet(out_path, index=False)
 
-    # Step 5: Filter only regular trading hours (RTH)
-    df = df[df["is_rth"]].copy()
+    print(f"  Saved cleaned file: {out_path}")
+    print(f"  Rows: {len(df_filtered)}")
 
-    # Step 6: Drop helper column
-    df.drop(columns=["is_rth"], inplace=True)
-
-    # Step 7: Save cleaned DataFrame as Parquet file
-    out_path = os.path.join(PATH_BARS, f"{symbol}_5m.parquet")
-    df.to_parquet(out_path, index=False)
-
-    print(f"Saved: {out_path}")
-
-print("5-minute data acquisition completed successfully.")
+print("\nData acquisition completed.")

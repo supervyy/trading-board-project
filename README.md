@@ -11,16 +11,16 @@ Für jede Minute vom 2022-01-03 bis zum 2025-11-21 berechnen wir die erwartete P
 
 *QQQ Technische Features:*
 - Normalisierte VWAP und Volumen
-- Normalisierte exponentielle gleitende Durchschnitte (EMA) über [5, 20] Minuten
+- Normalisierte exponentielle gleitende Durchschnitte (EMA) über [5, 10, 20] Minuten
 - EMA Differenz (EMA5 - EMA20)
 - Kurz- und mittelfristige Returns (5, 15, 30 Minuten)
-- Momentum (10 Minuten)
+- Realisierte Volatilität (10 Minuten)
 
 *Top Tech-Aktien Features (NVDA, AAPL, MSFT, GOOGL, AMZN)*:
-- Normalized VWAP and volume for each stock
-- EMAs over identical time horizons for each stock
-- Short-term and mid-term returns for each stock
-- EMA slopes for each stock
+- Normalisierte VWAP und Volumen für jede Aktie
+- EMA über [5, 10, 20] Minuten für jede Aktie
+- Kurz- und mittelfristige Returns (5, 15, 30 Minuten) für jede Aktie
+- EMA slopes für jede Aktie
 
 *Multi-Asset Relationship Features*:
 
@@ -69,7 +69,7 @@ Zieht **1-minute** adjustierte bars von **2020-07-27 → 2025-11-21** und schrei
 
 QQQ Rohdaten Beispiel:
 
-<img src="images/01_AAPL_bar_data.png" alt="drawing" width="800"/>
+<img src="images/01_QQQ_bar_data.png" alt="drawing" width="800"/>
 
 
 

@@ -41,13 +41,13 @@ Für jede Minute vom 2022-01-03 bis zum 2025-11-21 berechnen wir die erwartete P
 
 ---
 ## Data Acquisition
-Bezieht Rohmarktdaten für QQQ und Top Tech-Aktien von 2020-07-27 bis 2025-11-21, verwendet Alpaca Markets API als exklusive Datenquelle. Die Daten sind gefiltert auf reguläre Handelszeiten.
+Bezieht Rohmarktdaten für QQQ und Top Tech-Aktien von 2022-01-03 bis 2025-11-21, verwendet Alpaca Markets API als exklusive Datenquelle. Die Daten sind gefiltert auf reguläre Handelszeiten.
 
 **Script**
 
 [scripts/01_data_acquisition/01_data_acquisition.py](scripts/01_data_acquisition/01_data_acquisition.py)
 
-Zieht **1-minute** adjustierte bars von **2020-07-27 → 2025-11-21** und schreibt `symbol.parquet` Dateien nach `../trading-board-project/data/raw/QQQ_1m`
+Zieht **1-minute** adjustierte bars von **2022-01-03 → 2025-11-21** und schreibt `symbol.parquet` Dateien nach `../trading-board-project/data/raw/QQQ_1m`
 
 **APIs Used**
 - Alpaca Markets API v2
@@ -57,8 +57,8 @@ Zieht **1-minute** adjustierte bars von **2020-07-27 → 2025-11-21** und schrei
 - `timeframe`: 1Min (1-Minuten Bars)
 - `feed`: iex (kostenloser IEX Daten-Feed mit 15-minütiger Verzögerung) 
 - `adjustment`: all (automatische Anpassung für Splits und Dividenden)
-- `limit`: 1000 
-- `start`: 2020-01-03 (Startdatum)  
+- `limit`: 10000
+- `start`: 2022-01-03 (Startdatum)  
 - `end`: aktuelles Datum (Enddatum)
 - `sort`: asc (Sortierreihenfolge, neueste zuerst)
 

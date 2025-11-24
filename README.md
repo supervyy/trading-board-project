@@ -1,35 +1,75 @@
-# trading-board-project
+# QQQ Trend Prediction mit Top Tech-Aktien
 
 ### Problem Definition:
-**Target**
+**Ziel**
 
-Prediction of trend direction over next t=[5, 10, 15, 20, 30, 60, 120] minutes for Invesco QQQ ETF (QQQ), using NVIDIA as predictive factor.
-For every minute from 2020-01-01 until 2025-06-25 we calculate the target as the normalized linear regression slope of QQQ prices over future window t, while using current features from both QQQ and NVDA as input predictors.
+Vorhersage der Preisrichtung über die nächsten t=[5, 10, 15, 20, 30, 60, 120] Minuten für den Invesco QQQ ETF (QQQ) unter Verwendung der Top 5 Tech-Aktien als Einflussfaktoren.
+
+Für jede Minute vom 2022-01-03 bis zum 2025-11-21 berechnen wir die erwartete Preisveränderung über das zukünftige Fenster t, während wir aktuelle technische Features von sowohl QQQ als auch Top-Tech-Aktien als Input-Predictors verwenden.
 
 **Input Features**
 
-QQQ Technical Features:
-- Normalized VWAP (volume weighted average price) and volume
-- Normalized exponential moving average (EMA) over t=[5, 10, 15, 20, 30, 60, 120]
-- Slope and second order slope of EMAs
-- Short- and mid-term returns (1, 5, 10, 20 minutes)
+*QQQ Technische Features:*
+- Normalisierte VWAP und Volumen
+- Normalisierte exponentielle gleitende Durchschnitte (EMA) über [5, 20] Minuten
+- EMA Differenz (EMA5 - EMA20)
+- Kurz- und mittelfristige Returns (5, 15, 30 Minuten)
+- Momentum (10 Minuten)
 
-NVDA Cross-Asset Features:
-- Normalized VWAP and volume
-- NVDA EMAs over identical time horizons
-- NVDA short-term and mid-term returns
-- NVDA EMA slopes
+*Top Tech-Aktien Features (NVDA, AAPL, MSFT, GOOGL, AMZN)*:
+- Normalized VWAP and volume for each stock
+- EMAs over identical time horizons for each stock
+- Short-term and mid-term returns for each stock
+- EMA slopes for each stock
 
-QQQ-NVDA Relationship Features:
+*Multi-Asset Relationship Features*:
 
-- Rolling correlations (returns, EMAs, momentum)
-- Relative Strength Ratio (QQQ price / NVDA price)
-- Return Spread (QQQ return - NVDA return)
-- NVDA short-term momentum as lead-indicator
+- Korrelation zwischen QQQ und Tech-Aktien (15 Minuten)
+- Relative Stärke (QQQ Performance vs Tech-Durchschnitt)
+- Tech Momentum Leader (führende Tech-Aktie identifizieren)
 
-### Procedure Overview:
-- Collects minute bars for QQQ and NVDA from 2020-01-01 → 2025-07-24
-- Engineers above features for both assets and their relationships for each minute
-- Predicts direction of QQQ trend over next 30 minutes (entry-network) using feed-forward neural network ([128, 64] hidden layers, dropout 0.1, ReLU activation)
-- Use decision tree (depth=10) with embeddings (hidden layer with 64 neurons) to predict entry points with positive trend direction
-- Implement trading strategy in Alpaca, that enters QQQ positions at predicted entry points and holds them for 30 minutes
+### Verfahrensübersicht:
+- Sammelt Minuten-Bars für QQQ und Top 5 Tech-Aktien von 2022-01-03 → 2025-11-21
+- Berechnet technische Features für QQQ und vereinfachte Cross-Asset Features
+- Sagt Trendrichtung über nächste 30 Minuten vorher mittels Neural Network
+- Nutzt Decision Tree zur Identifikation von Entry-Points
+- Implementiert Trading-Strategie in Alpaca
+
+
+
+**Wir erwarten Muster zu finden, bei denen Tech-Aktien Momentum und Korrelationsänderungen QQQ Trendbewegungen vorausgehen.**
+
+---
+## Data Acquisition
+Bezieht Rohmarktdaten für QQQ und Top Tech-Aktien von 2020-07-27 bis 2025-11-21, verwendet Alpaca Markets API als exklusive Datenquelle. Die Daten sind gefiltert auf reguläre Handelszeiten.
+
+**Script**
+
+[scripts/01_data_acquisition/01_data_acquisition.py](scripts/01_data_acquisition/01_data_acquisition.py)
+
+Zieht **1-minute** adjustierte bars von **2020-07-27 → 2025-11-21** und schreibt `symbol.parquet` Dateien nach `../trading-board-project/data/raw/QQQ_1m`
+
+**APIs Used**
+- Alpaca Markets API v2
+
+**Parameter**
+- `symbol`: QQQ, NVDA, AAPL, MSFT, GOOGL, AMZN
+- `timeframe`: 1Min (1-Minuten Bars)
+- `feed`: iex (kostenloser IEX Daten-Feed mit 15-minütiger Verzögerung) 
+- `adjustment`: all (automatische Anpassung für Splits und Dividenden)
+- `limit`: 1000 
+- `start`: 2020-01-03 (Startdatum)  
+- `end`: aktuelles Datum (Enddatum)
+- `sort`: asc (Sortierreihenfolge, neueste zuerst)
+
+**Datenspeicherung**
+- Parquet-Dateien in `../trading-board-project/data/raw/QQQ_1m/`
+- Gefiltert für reguläre Handelszeiten
+- `columns`: `timestamp`, `open`, `high`, `low`, `close`, `volume`, `trade_count`,`vwap`,   
+
+QQQ Rohdaten Beispiel:
+
+<img src="images/01_AAPL_bar_data.png" alt="drawing" width="800"/>
+
+
+

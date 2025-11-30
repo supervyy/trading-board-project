@@ -67,29 +67,73 @@ def plot_price(dfs):
     plt.close()
 
 
-def plot_volume(dfs):
-    # Filter for last 4 weeks to make it clearer
-    df = dfs["QQQ"]
-    last_date = df.index.max()
-    start_date = last_date - pd.Timedelta(weeks=4)
-    subset = df[start_date:]
+def plot_avg_intraday_volume(dfs):
+    df = dfs["QQQ"].copy()
     
-    plt.figure(figsize=(16, 6))
+    # Ensure timezone is US/Eastern for correct 09:30-16:00 filtering/grouping
+    if df.index.tz is None:
+        # Assuming UTC if naive, based on previous data inspection (14:30 start)
+        df.index = df.index.tz_localize('UTC')
     
-    # Log scale for Volume
-    plt.yscale('log')
+    # Convert to US/Eastern
+    df.index = df.index.tz_convert('US/Eastern')
     
-    subset["volume"].plot(label="Volume (1m)", alpha=0.5, color='gray')
+    # Filter Market Hours (09:30 - 16:00)
+    # Note: The user stated data is already filtered, but explicit filtering ensures correctness
+    # especially if the input data spans slightly outside (e.g. pre/post market)
+    market_open = pd.Timestamp("09:30").time()
+    market_close = pd.Timestamp("16:00").time()
+    df = df.between_time(market_open, market_close)
     
-    # Rolling Average (20-minute)
-    subset["volume"].rolling(20).mean().plot(label="20-min Moving Avg", color='blue', linewidth=1.5)
+    # Calculate Average Volume per Minute
+    # Group by time of day
+    avg_volume = df.groupby(df.index.time)['volume'].mean()
     
-    plt.title("QQQ Volume Over Time (Last 4 Weeks) - Log Scale", fontsize=14)
-    plt.grid(True, which='both', linestyle='--', alpha=0.3)
+    # Rolling 5-min smoothing (optional but requested)
+    avg_volume_smooth = avg_volume.rolling(window=5, center=True).mean()
+    
+    # Plotting
+    plt.figure(figsize=(12, 6))
+    
+    # Create a dummy date to plot time on x-axis easily
+    dummy_date = pd.Timestamp("2000-01-01")
+    times = [dummy_date.replace(hour=t.hour, minute=t.minute) for t in avg_volume.index]
+    
+    plt.plot(times, avg_volume_smooth, color='#3b7cff', linewidth=2, label='Avg Intraday Volume (5-min Smooth)')
+    # Also plot raw data faintly if desired, or just the smooth one. User asked for "Glatte Kurve".
+    # plt.plot(times, avg_volume, color='#3b7cff', alpha=0.2, linewidth=1)
+    
+    # Formatting X-Axis
+    import matplotlib.dates as mdates
+    plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+    plt.gca().xaxis.set_major_locator(mdates.HourLocator(interval=1))
+    
+    # Explicit Ticks: 09:30, 12:00, 16:00
+    specific_ticks = [
+        dummy_date.replace(hour=9, minute=30),
+        dummy_date.replace(hour=12, minute=0),
+        dummy_date.replace(hour=16, minute=0)
+    ]
+    plt.xticks(list(plt.xticks()[0]) + [mdates.date2num(t) for t in specific_ticks])
+    
+    # Set x-axis limits to exact trading hours (09:30 - 16:00)
+    plt.xlim(specific_ticks[0], specific_ticks[-1])
+    plt.margins(x=0)  # Ensure no padding
+    
+    # Formatting Y-Axis (Thousands separator)
+    plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format(int(x), ',')))
+    
+    plt.title("QQQ – Average Intraday Volume Curve", fontsize=14)
+    plt.xlabel("Time (US/Eastern)", fontsize=12)
+    plt.ylabel("Average Volume", fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.5)
     plt.legend()
+    
     plt.tight_layout()
-    plt.savefig(IMG_PATH / "qqq_volume.png", dpi=300)
+    save_path = IMG_PATH / "qqq_avg_intraday_volume.png"
+    plt.savefig(save_path, dpi=300)
     plt.close()
+    print(f"✅ Average Intraday Volume Plot saved: {save_path.name}")
 
 
 def plot_returns_hist(dfs):
@@ -178,7 +222,7 @@ def main():
     dfs = load_data()
     describe_data(dfs)
     plot_price(dfs)
-    plot_volume(dfs)
+    plot_avg_intraday_volume(dfs)
     plot_returns_hist(dfs)
     plot_correlation_heatmap(dfs)
     print("\nData Understanding Completed. Plots saved.")

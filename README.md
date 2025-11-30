@@ -1,13 +1,13 @@
 # QQQ Trend Prediction mit Top Tech-Aktien
 
 ### Problem Definition:
-**Ziel**
+### Ziel
 
 Vorhersage der Preisrichtung über die nächsten t=[5, 10, 15, 20, 30, 60, 120] Minuten für den Invesco QQQ ETF (QQQ) unter Verwendung der Top 5 Tech-Aktien als Einflussfaktoren.
 
 Für jede Minute vom 2022-01-03 bis zum 2025-11-21 berechnen wir die erwartete Preisveränderung über das zukünftige Fenster t, während wir aktuelle technische Features von sowohl QQQ als auch Top-Tech-Aktien als Input-Predictors verwenden.
 
-**Input Features**
+### Input Features
 
 *QQQ Technische Features:*
 - Normalisierte VWAP und Volumen
@@ -40,7 +40,7 @@ Für jede Minute vom 2022-01-03 bis zum 2025-11-21 berechnen wir die erwartete P
 **Wir erwarten Muster zu finden, bei denen Tech-Aktien Momentum und Korrelationsänderungen QQQ Trendbewegungen vorausgehen.**
 
 ---
-## Data Acquisition
+## 01 Data Acquisition
 Bezieht Rohmarktdaten für QQQ und Top Tech-Aktien von 2022-01-03 bis 2025-11-21, verwendet Alpaca Markets API als exklusive Datenquelle. Die Daten sind gefiltert auf reguläre Handelszeiten.
 
 **Script**
@@ -70,6 +70,35 @@ Zieht **1-minute** adjustierte bars von **2022-01-03 → 2025-11-21** und schrei
 QQQ Rohdaten Beispiel:
 
 <img src="images/01_QQQ_bar_data.png" alt="drawing" width="800"/>
+
+---
+
+## 02 Data Understanding
+
+**QQQ Close Price**
+
+ Zeigt den Close-Preisverlauf von QQQ über die Zeit, inklusive markierter wichtiger Ereignisse wie dem ChatGPT-Launch, der SVB-Krise und starken NVIDIA-Gewinnen.
+
+![QQQ Close](images/data_understanding/qqq_close.png)
+
+**Durchschnittliches Intraday-Volumen** 
+
+Zeigt das durchschnittliche Volumen pro Minute von QQQ.
+
+![Avg Intraday Volume](images/data_understanding/qqq_avg_intraday_volume.png)
+
+**1‑Minuten-Rendite Histogramm**
+
+Zeigt die Renditeverteilung und Abweichungen von der Normalverteilung.
+
+![Returns Histogram](images/data_understanding/qqq_returns_hist_improved.png)
+
+**Korrelations-Heatmap**
+
+Zeigt die Korrelationen der 1‑Minuten-Renditen zwischen QQQ und Top-Tech-Aktien.
+
+![Correlation Heatmap](images/data_understanding/corr_heatmap.png)
+
 
 
 

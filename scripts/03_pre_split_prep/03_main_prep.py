@@ -115,7 +115,6 @@ def main():
     print("📝 Generating Reports...")
     reporting.save_sample_table(df_final)
     reporting.save_feature_stats(df_final)
-    reporting.generate_report(df_final)
 
 if __name__ == "__main__":
     main()

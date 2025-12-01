@@ -128,15 +128,81 @@ def plot_ema(df):
 
 def plot_rolling_corr(df):
     """
-    Plot Rolling Correlation (QQQ vs NVDA).
+    Plot Rolling 15-Min Correlation (QQQ vs NVDA) – Trading Hours Only (No Gaps).
+    Matches the visual style of the provided reference image (Darkgrid, Clean Ticks).
     """
-    plt.figure(figsize=(12, 4))
-    subset = df.iloc[-1000:]
-    if "corr_QQQ_NVDA_15" in subset.columns:
-        plt.plot(subset.index, subset["corr_QQQ_NVDA_15"], color="purple")
-        plt.axhline(0, color="black", linestyle="--")
-        plt.title("Rolling 15-Min Correlation: QQQ vs NVDA")
-        plt.savefig(IMG_PATH / "plot_B_rolling_corr.png")
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    
+    # 1. Filter Trading Hours (09:30 - 16:00)
+    df_plot = df.between_time("09:30", "16:00").copy()
+    
+    # 2. Subset to last 20 days (approx 1 month) to match image density
+    # Ensure index is datetime
+    if not isinstance(df_plot.index, pd.DatetimeIndex):
+        return
+
+    unique_days = sorted(pd.unique(df_plot.index.date))
+    if len(unique_days) > 20:
+        last_20_days = unique_days[-20:]
+        mask = np.isin(df_plot.index.date, last_20_days)
+        df_plot = df_plot[mask]
+    
+    # 3. Reset Index for Gap Removal
+    # This creates a standard RangeIndex (0, 1, 2, ...) -> x-axis
+    df_plot = df_plot.reset_index() 
+    
+    # Check if we have the data
+    if "corr_QQQ_NVDA_15" not in df_plot.columns:
+        return
+
+    # 4. Setup Plot
+    plt.figure(figsize=(14, 6))
+    sns.set_style("darkgrid") # Match the gray background
+    
+    # Main Line
+    plt.plot(df_plot.index, df_plot["corr_QQQ_NVDA_15"], 
+             color="#3b7cff", linewidth=1.5, label="Correlation")
+    
+    # Zero Line
+    plt.axhline(0, color="black", linestyle="-", linewidth=1, alpha=0.5)
+    
+    # 5. Daily Boundaries & Labels
+    ts_col = "timestamp" if "timestamp" in df_plot.columns else "index"
+    dates = df_plot[ts_col].dt.date
+    
+    # Find start indices of each day
+    day_starts = df_plot.groupby(dates).head(1).index
+    unique_dates = df_plot[ts_col].dt.date.unique()
+    
+    # Draw vertical lines
+    for start_idx in day_starts:
+        plt.axvline(start_idx, color="white", linestyle="-", linewidth=0.8, alpha=0.5)
+        
+    # Set X-Ticks (Every 2nd day to avoid crowding)
+    label_indices = [i for i in range(len(day_starts)) if i % 2 == 0]
+    tick_locs = [day_starts[i] for i in label_indices]
+    tick_labels = [unique_dates[i].strftime("%Y-%m-%d") for i in label_indices]
+    
+    plt.xticks(tick_locs, tick_labels, rotation=45, ha="right", fontsize=10)
+
+    # 6. Final Design
+    plt.title("Rolling 15-Min Correlation (QQQ vs NVDA) – Trading Hours Only", fontsize=14)
+    plt.ylabel("Correlation", fontsize=12)
+    plt.xlabel("") 
+    
+    # Clean up spines if desired, but darkgrid usually keeps them subtle
+    # sns.despine(left=True, bottom=True) 
+    
+    # Remove side margins
+    plt.xlim(df_plot.index[0], df_plot.index[-1])
+    
+    plt.tight_layout()
+    
+    # Save to data_preparation as requested
+    plt.savefig(IMG_PATH / "qqq_nvda_rolling_corr.png", dpi=300)
     plt.close()
 
 def plot_target_distribution(df):

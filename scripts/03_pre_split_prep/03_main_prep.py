@@ -98,11 +98,33 @@ def main():
     print("🎯 Generating Targets...")
     df_final = targets.generate_targets(df_final)
     
+    print("\n🔍 DEBUG - VOR Cleaning:")
+    print(f"   Shape: {df_final.shape}")
+    print(f"   Sample return_5 values:")
+    sample = df_final['return_5'].head(10)
+    for i, val in enumerate(sample):
+        print(f"      Row {i}: {val:.6f}")
+    print(f"   Stats - return_5: mean={df_final['return_5'].mean():.6f}, std={df_final['return_5'].std():.6f}")
+    
+    print("🧹 Cleaning Data (Outlier Removal)...")
+    df_final = features.clean_extreme_outliers(df_final)
+    df_final = features.handle_missing_data(df_final)
+    
+    # === DEBUG: Prüfe Values NACH Cleaning ===
+    print("\n🔍 DEBUG - NACH Cleaning:")
+    print(f"   Shape: {df_final.shape}")
+    print(f"   Sample return_5 values:")
+    sample = df_final['return_5'].head(10)
+    for i, val in enumerate(sample):
+        print(f"      Row {i}: {val:.6f}")
+    print(f"   Stats - return_5: mean={df_final['return_5'].mean():.6f}, std={df_final['return_5'].std():.6f}")
+    
     # 6. Plots
     print("📊 Generating Plots...")
     plots.plot_ema(df_final)
     plots.plot_rolling_corr(df_final)
     plots.plot_target_distribution(df_final)
+    plots.plot_feature_target_correlation(df_final)
     plots.plot_scatter_returns(df_final)
     
     # 7. Save

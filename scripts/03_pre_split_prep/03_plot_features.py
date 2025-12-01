@@ -38,28 +38,57 @@ def plot_rolling_corr(df):
 
 def plot_target_distribution(df):
     """
-    Plot Target Distribution (Bar Plot: Down/Flat vs Up).
+    Plot Target Distribution for ALL targets [5, 15, 30] minutes.
     """
-    plt.figure(figsize=(6, 4))
-    if "target_30" in df.columns:
-        counts = df["target_30"].value_counts().sort_index()
-        ax = counts.plot(kind="bar", color=["#e74c3c", "#2ecc71"], rot=0)
-        plt.title("Target Distribution (30-min Trend)")
-        plt.xlabel("Trend Direction")
-        plt.ylabel("Count")
-        
-        # Set custom x-labels
-        ax.set_xticklabels(["Down/Flat", "Up"])
-        
-        # Add percentage labels
-        total = len(df)
-        for p in ax.patches:
-            percentage = '{:.1f}%'.format(100 * p.get_height()/total)
-            x = p.get_x() + p.get_width()/2
-            y = p.get_height()
-            ax.annotate(percentage, (x, y), ha='center', va='bottom')
+    target_windows = [5, 15, 30]
+    
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    
+    for i, window in enumerate(target_windows):
+        target_col = f'target_{window}'
+        if target_col in df.columns:
+            counts = df[target_col].value_counts().sort_index()
+            ax = counts.plot(kind="bar", color=["#e74c3c", "#2ecc71"], rot=0, ax=axes[i])
             
-        plt.savefig(IMG_PATH / "target_distribution_30min.png")
+            axes[i].set_title(f"Target Distribution ({window}-min Trend)")
+            axes[i].set_xlabel("Trend Direction")
+            axes[i].set_ylabel("Count")
+            
+            # Set custom x-labels
+            ax.set_xticklabels(["Down/Flat", "Up"])
+            
+            # Add percentage labels
+            total = len(df)
+            for p in ax.patches:
+                percentage = '{:.1f}%'.format(100 * p.get_height()/total)
+                x = p.get_x() + p.get_width()/2
+                y = p.get_height()
+                ax.annotate(percentage, (x, y), ha='center', va='bottom')
+    
+    plt.tight_layout()
+    plt.savefig(IMG_PATH / "target_distribution_all.png", dpi=300)
+    plt.close()
+
+def plot_feature_target_correlation(df):
+    """
+    Plot correlation between features and all targets.
+    """
+    target_cols = [f'target_{w}' for w in [5, 15, 30] if f'target_{w}' in df.columns]
+    feature_cols = ['ema_diff', 'return_5', 'volume_norm', 'relative_strength', 
+                   'corr_QQQ_NVDA_15', 'NVDA_return_5']
+    
+    # Korrelationsmatrix
+    corr_matrix = df[feature_cols + target_cols].corr()
+    
+    # Nur Feature-Target Korrelationen
+    target_correlations = corr_matrix.loc[feature_cols, target_cols]
+    
+    plt.figure(figsize=(10, 6))
+    sns.heatmap(target_correlations, annot=True, cmap='coolwarm', center=0,
+                fmt='.3f', cbar_kws={'shrink': 0.8})
+    plt.title('Feature-Target Correlation Matrix')
+    plt.tight_layout()
+    plt.savefig(IMG_PATH / "feature_target_correlation.png", dpi=300)
     plt.close()
 
 def plot_scatter_returns(df):

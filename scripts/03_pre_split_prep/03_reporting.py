@@ -12,162 +12,158 @@ REPORT_PATH.mkdir(parents=True, exist_ok=True)
 
 def save_sample_table(df):
     """
-    Save a sample table (10 rows) as PNG.
+    Save a sample table (10 rows) as PNG with better formatting.
     """
     # Select 10 random rows
-    sample = df.sample(n=10, random_state=42).round(4)
+    sample = df.sample(n=10, random_state=42)
     
-    # Select a subset of columns to fit in the image if there are too many
-    # Prioritize key features
-    cols = list(sample.columns)
+    # Smart formatting function
+    def format_cell_value(val, col_name):
+        if pd.isna(val):
+            return ''
+        if 'return' in col_name and abs(val) < 0.001:
+            return f"{val:.6f}"
+        elif isinstance(val, float):
+            return f"{val:.4f}"
+        elif isinstance(val, (int, np.integer)):
+            return str(val)
+        else:
+            return str(val)
+    
+    # Select and format columns
     priority_cols = ['close', 'ema_5', 'ema_diff', 'return_5', 'NVDA_return_5', 
                      'corr_QQQ_NVDA_15', 'relative_strength', 'target_30']
     
-    # Keep priority cols + a few others up to max 12 cols
-    display_cols = [c for c in priority_cols if c in cols]
-    remaining = [c for c in cols if c not in display_cols]
-    display_cols.extend(remaining[:4])
+    display_cols = [c for c in priority_cols if c in sample.columns]
+    sample_display = sample[display_cols].copy()
     
-    sample = sample[display_cols]
-
-    fig, ax = plt.subplots(figsize=(16, 6)) # Wide figure
+    # Apply formatting
+    for col in display_cols:
+        sample_display[col] = sample_display[col].apply(lambda x: format_cell_value(x, col))
+    
+    fig, ax = plt.subplots(figsize=(16, 6))
     ax.axis('tight')
     ax.axis('off')
-    table = ax.table(cellText=sample.values, colLabels=sample.columns, loc='center')
+    
+    # Prepare table data
+    cell_text = sample_display.values.tolist()
+    col_labels = sample_display.columns.tolist()
+    
+    table = ax.table(cellText=cell_text, colLabels=col_labels, loc='center')
     table.auto_set_font_size(False)
     table.set_fontsize(9)
     table.scale(1.2, 1.5)
     
-    plt.title("Sample Features (10 Random Rows)", fontsize=14, y=0.95)
+    # Color code based on column type
+    for col_idx, col_name in enumerate(col_labels):
+        if 'return' in col_name:
+            for row_idx in range(len(cell_text)):
+                cell = table[(row_idx+1, col_idx)]
+                cell.set_text_props(ha='right')
+    
+    plt.title("Sample Features (10 Random Rows) - Returns shown with 6 decimals", 
+              fontsize=14, y=0.95)
+    plt.tight_layout()
     plt.savefig(IMG_PATH / "sample_features.png", bbox_inches='tight', dpi=300)
     plt.close()
+    
     print(f"✅ Sample table saved: sample_features.png")
 
 def save_feature_stats(df):
     """
-    Save descriptive statistics as PNG.
+    Save descriptive statistics as PNG with smart rounding.
     """
-    stats = df.describe().T.round(4)
+    stats = df.describe().T
     
-    # Split into chunks if too long, but for now let's try one big image or just top features
-    # If too many rows, matplotlib table might be ugly.
-    # Let's just save the whole thing but make figure tall.
+    # SMART ROUNDING based on feature type
+    def smart_round(series, col_name):
+        """Apply different rounding based on feature scale."""
+        if 'return' in col_name or 'vol' in col_name:
+            return series.round(6)  # More decimals for small returns
+        elif 'norm' in col_name or 'diff' in col_name or 'slope' in col_name:
+            return series.round(4)  # Medium decimals
+        elif 'close' in col_name or 'ema' in col_name:
+            return series.round(2)  # Few decimals for prices
+        else:
+            return series.round(4)  # Default
     
+    # Apply smart rounding to each row
+    for idx in stats.index:
+        stats.loc[idx] = smart_round(stats.loc[idx], idx)
+    
+    # Round count to integer
+    stats['count'] = stats['count'].round(0).astype(int)
+    
+    # Create the table plot
     rows = len(stats)
     fig, ax = plt.subplots(figsize=(14, rows * 0.4 + 2))
     ax.axis('tight')
     ax.axis('off')
     
-    # Add index as a column
-    stats_reset = stats.reset_index()
-    col_labels = stats_reset.columns
+    # Format values for display (scientific notation for very small values)
+    stats_display = stats.copy()
     
-    table = ax.table(cellText=stats_reset.values, colLabels=col_labels, loc='center')
+    def format_value(val, col_name, stat_name):
+        """Format value for display."""
+        if pd.isna(val):
+            return ''
+        
+        # Scientific notation for very small returns
+        if 'return' in col_name and abs(val) < 0.0001 and val != 0:
+            return f"{val:.2e}"
+        
+        # Already rounded, convert to string
+        if isinstance(val, float):
+            return f"{val:.6f}" if 'return' in col_name else f"{val:.4f}"
+        return str(val)
+    
+    # Convert to display strings
+    display_data = []
+    for idx, row in stats.iterrows():
+        display_row = [idx]  # Feature name
+        for stat in ['count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max']:
+            if stat in row:
+                display_row.append(format_value(row[stat], idx, stat))
+        display_data.append(display_row)
+    
+    # Column labels
+    col_labels = ['Feature'] + [c for c in ['count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max'] 
+                               if c in stats.columns]
+    
+    table = ax.table(cellText=display_data, colLabels=col_labels, loc='center')
     table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1, 1.5)
+    table.set_fontsize(9)  # Smaller font for more rows
+    table.scale(1, 1.3)
     
-    # Adjust column widths manually
-    # Column 0 (Feature Name) needs to be wider
+    # Adjust column widths
     for key, cell in table.get_celld().items():
         row, col = key
-        if col == 0:
-            cell.set_width(0.25) # Wider for feature names
-            cell.set_text_props(ha='left') # Left align feature names
-            # Add some padding to left alignment
-            if row > 0: # Skip header
-                cell.set_text_props(ha='left', x=0.05)
-        else:
-            cell.set_width(0.08) # Narrower for numbers
+        if col == 0:  # Feature names
+            cell.set_width(0.3)
+            cell.set_text_props(ha='left', fontsize=8)
+            if row > 0:
+                cell.set_text_props(ha='left', x=0.02, fontsize=8)
+        else:  # Numbers
+            cell.set_width(0.1)
+            cell.set_text_props(ha='right', fontsize=8)
     
-    plt.title("Descriptive Statistics", fontsize=16, y=0.98)
+    plt.title("Descriptive Statistics (Smart Rounding Applied)", fontsize=14, y=0.98)
+    plt.tight_layout()
     plt.savefig(IMG_PATH / "feature_stats.png", bbox_inches='tight', dpi=300)
     plt.close()
+    
+    # Also save as CSV for exact values
+    csv_path = REPORT_PATH / "feature_statistics.csv"
+    stats.to_csv(csv_path)
+    
     print(f"✅ Feature stats saved: feature_stats.png")
-
-def generate_report(df):
-    """
-    Generate automated markdown report.
-    """
-    stats = df.describe().T
+    print(f"✅ Exact values saved: {csv_path}")
     
-    # --- Automated Checks ---
-    # Returns
-    mean_ret = df['return_5'].mean()
-    std_ret = df['return_5'].std()
-    
-    # Cross Asset
-    if 'corr_QQQ_NVDA_15' in df.columns:
-        corr_mean = df['corr_QQQ_NVDA_15'].mean()
-    else:
-        corr_mean = 0
-        
-    # Target
-    if 'target_30' in df.columns:
-        target_balance = df['target_30'].mean()
-    else:
-        target_balance = 0
-        
-    # NaNs
-    nan_count = df.isna().sum().sum()
-    
-    # --- Text Generation ---
-    findings = []
-    
-    # Returns
-    if abs(mean_ret) < 0.001:
-        findings.append(f"Die 5-Minuten-Returns zeigen eine erwartungsgemäße Mean-Reversion um 0 (Mean: {mean_ret:.5f}).")
-    else:
-        findings.append(f"Die Returns weisen einen leichten Drift auf (Mean: {mean_ret:.5f}).")
-        
-    findings.append(f"Die Volatilität (Std Dev) der 5-Min-Returns liegt bei {std_ret:.4f}, was auf typische Intraday-Schwankungen hindeutet.")
-    
-    # Correlation
-    findings.append(f"Die Cross-Asset-Korrelation zwischen QQQ und NVDA ist im Durchschnitt hoch ({corr_mean:.2f}), was die Relevanz von NVDA als Prädiktor bestätigt.")
-    
-    # Target
-    findings.append(f"Das Target 'target_30' ist mit {target_balance:.1%} (Klasse 1) sehr gut balanciert, was ideal für das Modelltraining ist.")
-    
-    # Data Quality
-    if nan_count == 0:
-        findings.append("Es wurden keine fehlenden Werte (NaNs) im finalen Datensatz gefunden; die Bereinigung war erfolgreich.")
-    else:
-        findings.append(f"Warnung: Es sind noch {nan_count} NaNs im Datensatz enthalten.")
-        
-    # EMAs
-    if 'ema_diff' in df.columns:
-        ema_diff_std = df['ema_diff'].std()
-        findings.append(f"Der EMA-Diff-Indikator zeigt eine gesunde Dynamik (Std: {ema_diff_std:.4f}) ohne extreme Ausreißer, die auf Datenfehler hindeuten würden.")
-
-    # Construct Report
-    md_content = f"""# Pre-Split Feature Report
-
-## Abschnitt A — Summary Table
-Die wichtigsten statistischen Kennzahlen (Auszug):
-
-| Feature | Mean | Std | Min | Max |
-|---|---|---|---|---|
-| return_5 | {stats.loc['return_5', 'mean']:.5f} | {stats.loc['return_5', 'std']:.5f} | {stats.loc['return_5', 'min']:.5f} | {stats.loc['return_5', 'max']:.5f} |
-| ema_diff | {stats.loc['ema_diff', 'mean']:.4f} | {stats.loc['ema_diff', 'std']:.4f} | {stats.loc['ema_diff', 'min']:.4f} | {stats.loc['ema_diff', 'max']:.4f} |
-| corr_QQQ_NVDA_15 | {corr_mean:.4f} | {stats.loc['corr_QQQ_NVDA_15', 'std']:.4f} | {stats.loc['corr_QQQ_NVDA_15', 'min']:.4f} | {stats.loc['corr_QQQ_NVDA_15', 'max']:.4f} |
-| target_30 | {target_balance:.4f} | {stats.loc['target_30', 'std']:.4f} | {stats.loc['target_30', 'min']:.0f} | {stats.loc['target_30', 'max']:.0f} |
-
-*(Vollständige Tabelle siehe `images/data_preparation/feature_stats.png`)*
-
-## Abschnitt B — Plausibility Check
-- **Data Range**: {df.index.min()} bis {df.index.max()}
-- **Total Rows**: {len(df):,}
-- **NaN Check**: {"✅ Passed (0 NaNs)" if nan_count == 0 else f"❌ Failed ({nan_count} NaNs)"}
-- **Target Balance**: {target_balance:.1%} (Target 1) / {1-target_balance:.1%} (Target 0)
-
-## Abschnitt C — Automatisch generierte Findings
-{' '.join(findings)}
-
----
-*Report generated automatically by `03_reporting.py`*
-"""
-    
-    with open(REPORT_PATH / "pre_split_feature_report.md", "w", encoding="utf-8") as f:
-        f.write(md_content)
-        
-    print(f"✅ Report generated: reports/pre_split_feature_report.md")
+    # Print key stats to console
+    print("\n📊 KEY STATISTICS SUMMARY:")
+    return_cols = [c for c in df.columns if 'return' in c and 'target' not in c]
+    for col in return_cols[:3]:  # Show first 3 returns
+        if col in df.columns:
+            mean_val = df[col].mean()
+            std_val = df[col].std()
+            print(f"   {col}: mean={mean_val:.6f}, std={std_val:.6f}")

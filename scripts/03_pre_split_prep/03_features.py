@@ -43,13 +43,15 @@ def engineer_tech_features(df, symbol):
     
     # EMAs
     df[f'{prefix}ema_5'] = close.ewm(span=5, adjust=False).mean()
+    df[f'{prefix}ema_10'] = close.ewm(span=10, adjust=False).mean()
     df[f'{prefix}ema_20'] = close.ewm(span=20, adjust=False).mean()
     
     # EMA Slope
-    df[f'{prefix}ema_slope'] = df[f'{prefix}ema_5'].diff()
+    df[f'{prefix}ema_slope'] = df[f'{prefix}ema_5'] - df[f'{prefix}ema_20']
     
     # Returns
     df[f'{prefix}return_5'] = close.pct_change(5)
+    df[f'{prefix}return_15'] = close.pct_change(15)
     df[f'{prefix}return_30'] = close.pct_change(30)
     
     # Normalized Features
@@ -87,3 +89,45 @@ def engineer_cross_asset_features(df_final, tech_symbols):
     df_final['momentum_leader'] = df_final['momentum_leader'].astype('category').cat.codes
     
     return df_final
+def clean_extreme_outliers(df):
+    """
+    Remove unrealistic price moves and fix data quality issues.
+    """
+    df = df.copy()
+    
+    # 1. Remove extreme returns (beyond ±5% in 5min is unrealistic)
+    return_cols = [col for col in df.columns if 'return' in col and 'target' not in col]
+    
+    for col in return_cols:
+        mask = df[col].between(-0.05, 0.05) | df[col].isna()
+        df = df[mask]
+    
+    # 2. Fix negative volume (impossible values)
+    volume_cols = [col for col in df.columns if 'volume_norm' in col]
+    for col in volume_cols:
+        df[col] = df[col].clip(lower=0.01)  # Minimum 1% of average volume
+    
+    # 3. Remove extreme volume outliers (beyond 10x average)
+    for col in volume_cols:
+        mask = df[col] <= 10.0
+        df = df[mask]
+    
+    # 4. Fix realized volatility (should never be 0)
+    if 'realized_vol_10' in df.columns:
+        df['realized_vol_10'] = df['realized_vol_10'].replace(0, np.nan)
+    
+    return df
+
+def handle_missing_data(df):
+    """
+    Handle missing values after outlier removal.
+    """
+    df = df.copy()
+    
+    # Forward fill then backward fill
+    df = df.ffill().bfill()
+    
+    # Remove any remaining rows with NaNs
+    df = df.dropna()
+    
+    return df

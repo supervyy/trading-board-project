@@ -35,11 +35,7 @@ def save_sample_table(df):
     
     # Select and format columns - JETZT MIT REGRESSION TARGETS
     priority_cols = ['close', 'ema_5', 'ema_diff', 'return_5', 'NVDA_return_5', 
-<<<<<<< HEAD
                      'corr_QQQ_NVDA_15', 'relative_strength', 'target_5m', 'target_15m']
-=======
-                     'corr_QQQ_NVDA_15', 'relative_strength', 'target_5', 'target_15', 'target_30']
->>>>>>> bd3d72c103e60e270f264b43c77cdf5e044b4bd3
     
     display_cols = [c for c in priority_cols if c in sample.columns]
     sample_display = sample[display_cols].copy()
@@ -175,6 +171,7 @@ def save_feature_stats(df):
             mean_val = df[col].mean()
             std_val = df[col].std()
             print(f"   {col}: mean={mean_val:.6f}, std={std_val:.6f}")
+
 def save_regression_target_statistics(df):
     """
     Create descriptive statistics for REGRESSION targets.
@@ -258,11 +255,11 @@ def generate_markdown_report(df, train, val, test):
     n_rows = len(df)
     n_cols = len(df.columns)
     
-    # Target distribution
+    # Target distribution - KORRIGIERT: target_{w}m statt target_{w}
     target_dist = ""
     for w in [5, 15, 30]:
-        if f'target_{w}' in df.columns:
-            up = df[f'target_{w}'].mean() * 100
+        if f'target_{w}m' in df.columns:  # ✅ MIT "m"
+            up = df[f'target_{w}m'].mean() * 100
             target_dist += f"- **{w}min Target**: {up:.1f}% Upward / {100-up:.1f}% Downward\n"
             
     # Split stats
@@ -356,4 +353,3 @@ We selected features based on financial intuition and literature:
         f.write(markdown_content)
         
     print(f"✅ Report saved to: {report_file}")
-

@@ -99,6 +99,8 @@ Zeigt die Korrelationen der 1‑Minuten-Renditen zwischen QQQ und Top-Tech-Aktie
 
 ![Correlation Heatmap](images/data_understanding/corr_heatmap.png)
 
+## 03 Pre Split Preperation
+
 
 
 

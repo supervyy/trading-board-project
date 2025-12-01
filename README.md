@@ -101,6 +101,42 @@ Zeigt die Korrelationen der 1‑Minuten-Renditen zwischen QQQ und Top-Tech-Aktie
 
 ## 03 Pre Split Preperation
 
+**Main Script**
+
+[main.py](scripts/03_pre_split_prep/03_main_prep.py)
+
+**Feature Engineering Script**
+
+[scripts/03_pre_split_prep/03_features.py](scripts/03_pre_split_prep/03_features.py)
 
 
+**Target Computation Script**
+
+[scripts/03_pre_split_prep/03_targets.py](scripts/03_pre_split_prep/03_targets.py)
+
+**Plotting Script**
+
+[scripts/03_pre_split_prep/03_plot_features.py](scripts/03_pre_split_prep/03_plot_features.py)
+
+### Deskriptive Statistik - Targets
+
+| Zeitraum | count | mean | std | min | 25% | 50% | 75% | max |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `target_5m`  | 274,521 | 0.000006 | 0.001839 | -0.053420 | -0.000655 | 0.000035 | 0.000692 | 0.051291 |
+| `target_15m` | 274,521 | 0.000024 | 0.003219 | -0.051962 | -0.001144 | 0.000090 | 0.001259 | 0.068575 |
+| `target_30m` | 274,521 | 0.000052 | 0.004589 | -0.061669 | -0.001660 | 0.000164 | 0.001871 | 0.071000 |
+
+### Deskriptive Statistik - Features
+| Feature | Count | Mean | Std | Min | 25% | 50% | 75% | Max |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `close` | 274,521 | 414.23 | 105.45 | 251.77 | 312.86 | 415.24 | 498.83 | 636.90 |
+| `ema_diff` | 274,521 | 0.004000 | 0.417300 | -6.398800 | -0.165100 | 0.017600 | 0.183500 | 5.519400 |
+| `return_5` | 274,521 | 0.000007 | 0.001588 | -0.028220 | -0.000613 | 0.000032 | 0.000644 | 0.029084 |
+| `NVDA_return_5` | 274,521 | 0.000023 | 0.003514 | -0.048448 | -0.001420 | 0.000000 | 0.001480 | 0.048957 |
+| `volume_norm` | 274,521 | 1.031118 | 1.089673 | 0.016056 | 0.364326 | 0.692064 | 1.278594 | 9.992468 |
+| `corr_QQQ_NVDA_15` | 274,521 | 0.688600 | 0.266600 | -0.985000 | 0.580800 | 0.767100 | 0.879100 | 0.999400 |
+| `relative_strength` | 274,521 | -0.000000 | 0.000800 | -0.012300 | -0.000300 | -0.000000 | 0.000300 | 0.018400 |
+### Sample Features 
+
+![Sample Features with Regression Targets](images/data_preparation/sample_features.png)
 

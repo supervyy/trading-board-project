@@ -120,11 +120,11 @@ def main():
     print(f"   Stats - return_5: mean={df_final['return_5'].mean():.6f}, std={df_final['return_5'].std():.6f}")
     
     # 6. Plots
-    print("📊 Generating Plots...")
+    print("📊 Generating Regression Plots...")
     plots.plot_ema(df_final)
     plots.plot_rolling_corr(df_final)
-    plots.plot_target_distribution(df_final)
-    plots.plot_feature_target_correlation(df_final)
+    plots.plot_regression_targets_distribution(df_final)  # NEUE FUNCTION
+    plots.plot_feature_target_correlation(df_final)  # Updated für Regression
     plots.plot_scatter_returns(df_final)
     
     # 7. Save
@@ -137,6 +137,7 @@ def main():
     print("📝 Generating Reports...")
     reporting.save_sample_table(df_final)
     reporting.save_feature_stats(df_final)
+    reporting.save_regression_target_statistics(df_final)
 
 if __name__ == "__main__":
     main()

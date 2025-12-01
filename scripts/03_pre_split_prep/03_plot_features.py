@@ -71,25 +71,71 @@ def plot_target_distribution(df):
 
 def plot_feature_target_correlation(df):
     """
-    Plot correlation between features and all targets.
+    Plot correlation between features and REGRESSION targets.
     """
-    target_cols = [f'target_{w}' for w in [5, 15, 30] if f'target_{w}' in df.columns]
+    # REGRESSION targets only
+    target_cols = [f'target_{w}m' for w in [5, 15, 30] if f'target_{w}m' in df.columns]
+    
+    if not target_cols:
+        print("⚠️ No regression targets found")
+        return
+    
     feature_cols = ['ema_diff', 'return_5', 'volume_norm', 'relative_strength', 
                    'corr_QQQ_NVDA_15', 'NVDA_return_5']
     
-    # Korrelationsmatrix
-    corr_matrix = df[feature_cols + target_cols].corr()
+    available_features = [col for col in feature_cols if col in df.columns]
     
-    # Nur Feature-Target Korrelationen
-    target_correlations = corr_matrix.loc[feature_cols, target_cols]
+    # Korrelationsmatrix
+    corr_matrix = df[available_features + target_cols].corr()
+    target_correlations = corr_matrix.loc[available_features, target_cols]
+    
+    if target_correlations.empty:
+        print("⚠️ Correlation matrix is empty")
+        return
     
     plt.figure(figsize=(10, 6))
     sns.heatmap(target_correlations, annot=True, cmap='coolwarm', center=0,
                 fmt='.3f', cbar_kws={'shrink': 0.8})
-    plt.title('Feature-Target Correlation Matrix')
+    
+    plt.title('Feature-Target Correlation Matrix (Regression)')
     plt.tight_layout()
     plt.savefig(IMG_PATH / "feature_target_correlation.png", dpi=300)
     plt.close()
+    
+    print("\n📊 Feature-Target Correlations (Regression):")
+    print(target_correlations.to_string())
+
+def plot_regression_targets_distribution(df):
+    """
+    Plot distribution of REGRESSION targets (future returns).
+    """
+    target_cols = [f'target_{w}m' for w in [5, 15, 30] if f'target_{w}m' in df.columns]
+    
+    if not target_cols:
+        print("⚠️ No regression targets found for distribution plot")
+        return
+    
+    fig, axes = plt.subplots(1, len(target_cols), figsize=(15, 4))
+    
+    for i, target_col in enumerate(target_cols):
+        data = df[target_col].dropna()
+        window = target_col.split('_')[1].replace('m', '')
+        
+        axes[i].hist(data, bins=50, alpha=0.7, color='skyblue', edgecolor='black')
+        axes[i].axvline(data.mean(), color='red', linestyle='--', 
+                       label=f'Mean: {data.mean():.6f}')
+        axes[i].axvline(0, color='black', linestyle='-', alpha=0.5)
+        
+        axes[i].set_title(f"Future Return Distribution ({window}-min)")
+        axes[i].set_xlabel("Return")
+        axes[i].set_ylabel("Frequency")
+        axes[i].legend()
+        axes[i].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(IMG_PATH / "regression_targets_distribution.png", dpi=300)
+    plt.close()
+    print("✅ Regression targets distribution plot saved")
 
 def plot_scatter_returns(df):
     """

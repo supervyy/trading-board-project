@@ -13,6 +13,7 @@ REPORT_PATH.mkdir(parents=True, exist_ok=True)
 def save_sample_table(df):
     """
     Save a sample table (10 rows) as PNG with better formatting.
+    Updated for REGRESSION targets.
     """
     # Select 10 random rows
     sample = df.sample(n=10, random_state=42)
@@ -21,7 +22,9 @@ def save_sample_table(df):
     def format_cell_value(val, col_name):
         if pd.isna(val):
             return ''
-        if 'return' in col_name and abs(val) < 0.001:
+        if 'target_' in col_name and 'm' in col_name:  # Regression targets
+            return f"{val:.6f}"
+        elif 'return' in col_name and abs(val) < 0.001:
             return f"{val:.6f}"
         elif isinstance(val, float):
             return f"{val:.4f}"
@@ -30,9 +33,9 @@ def save_sample_table(df):
         else:
             return str(val)
     
-    # Select and format columns
+    # Select and format columns - JETZT MIT REGRESSION TARGETS
     priority_cols = ['close', 'ema_5', 'ema_diff', 'return_5', 'NVDA_return_5', 
-                     'corr_QQQ_NVDA_15', 'relative_strength', 'target_30']
+                     'corr_QQQ_NVDA_15', 'relative_strength', 'target_5m', 'target_15m']
     
     display_cols = [c for c in priority_cols if c in sample.columns]
     sample_display = sample[display_cols].copy()
@@ -54,20 +57,21 @@ def save_sample_table(df):
     table.set_fontsize(9)
     table.scale(1.2, 1.5)
     
-    # Color code based on column type
+    # Color code regression targets
     for col_idx, col_name in enumerate(col_labels):
-        if 'return' in col_name:
+        if 'target_' in col_name:
             for row_idx in range(len(cell_text)):
                 cell = table[(row_idx+1, col_idx)]
+                cell.set_facecolor('#E8F4F8')  # Light blue for targets
                 cell.set_text_props(ha='right')
     
-    plt.title("Sample Features (10 Random Rows) - Returns shown with 6 decimals", 
+    plt.title("Sample Features with Regression Targets (10 Random Rows)", 
               fontsize=14, y=0.95)
     plt.tight_layout()
     plt.savefig(IMG_PATH / "sample_features.png", bbox_inches='tight', dpi=300)
     plt.close()
     
-    print(f"✅ Sample table saved: sample_features.png")
+    print(f"✅ Sample table saved: sample_features.png (with regression targets)")
 
 def save_feature_stats(df):
     """
@@ -167,3 +171,73 @@ def save_feature_stats(df):
             mean_val = df[col].mean()
             std_val = df[col].std()
             print(f"   {col}: mean={mean_val:.6f}, std={std_val:.6f}")
+def save_regression_target_statistics(df):
+    """
+    Create descriptive statistics for REGRESSION targets.
+    """
+    # Regression targets
+    target_cols = [f'target_{w}m' for w in [5, 15, 30] if f'target_{w}m' in df.columns]
+    
+    if not target_cols:
+        print("❌ No regression targets found")
+        return None
+    
+    # Calculate statistics
+    stats_list = []
+    for target in target_cols:
+        stats = df[target].describe()
+        stats['target'] = target
+        stats_list.append(stats)
+    
+    targets_df = pd.DataFrame(stats_list)
+    
+    # Reorder columns
+    targets_df = targets_df[['target', 'count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max']]
+    targets_df['count'] = targets_df['count'].astype(int)
+    
+    # Format numbers
+    numeric_cols = ['mean', 'std', 'min', '25%', '50%', '75%', 'max']
+    targets_df[numeric_cols] = targets_df[numeric_cols].round(6)
+    
+    # Create table plot
+    fig, ax = plt.subplots(figsize=(12, len(target_cols) * 0.6 + 2))
+    ax.axis('tight')
+    ax.axis('off')
+    
+    table = ax.table(cellText=targets_df.values,
+                     colLabels=targets_df.columns,
+                     loc='center',
+                     cellLoc='center')
+    
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.2, 1.5)
+    
+    # Style header
+    for i in range(len(targets_df.columns)):
+        table[(0, i)].set_facecolor('#2E86AB')
+        table[(0, i)].set_text_props(weight='bold', color='white', fontsize=11)
+    
+    plt.title("Deskriptive Statistik - Targets (Regression)", fontsize=14, pad=20)
+    plt.tight_layout()
+    plt.savefig(IMG_PATH / "regression_target_statistics.png", bbox_inches='tight', dpi=300)
+    plt.close()
+    
+    # Save as CSV
+    csv_path = REPORT_PATH / "regression_target_statistics.csv"
+    targets_df.to_csv(csv_path, index=False)
+    
+    print(f"✅ Regression target statistics saved: regression_target_statistics.png")
+    print(f"✅ CSV saved: {csv_path}")
+    
+    # Print summary
+    print("\n📈 REGRESSION TARGETS SUMMARY:")
+    print("=" * 60)
+    for _, row in targets_df.iterrows():
+        target_name = row['target']
+        mean_val = row['mean']
+        std_val = row['std']
+        print(f"{target_name:20} : mean = {mean_val:.6f}, std = {std_val:.6f}")
+    print("=" * 60)
+    
+    return targets_df

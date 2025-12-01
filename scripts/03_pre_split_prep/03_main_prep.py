@@ -12,12 +12,14 @@ features = importlib.import_module("03_features")
 targets = importlib.import_module("03_targets")
 plots = importlib.import_module("03_plot_features")
 reporting = importlib.import_module("03_reporting")
+splitting = importlib.import_module("03_splitting")
 
 # Reload modules to ensure latest changes are picked up if run interactively
 importlib.reload(features)
 importlib.reload(targets)
 importlib.reload(plots)
 importlib.reload(reporting)
+importlib.reload(splitting)
 
 # Paths
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -120,24 +122,23 @@ def main():
     print(f"   Stats - return_5: mean={df_final['return_5'].mean():.6f}, std={df_final['return_5'].std():.6f}")
     
     # 6. Plots
-    print("📊 Generating Regression Plots...")
+    print("📊 Generating Plots...")
     plots.plot_ema(df_final)
     plots.plot_rolling_corr(df_final)
-    plots.plot_regression_targets_distribution(df_final)  # NEUE FUNCTION
-    plots.plot_feature_target_correlation(df_final)  # Updated für Regression
+    plots.plot_target_distribution(df_final)
+    plots.plot_feature_target_correlation(df_final)
     plots.plot_scatter_returns(df_final)
     
-    # 7. Save
+    # 8. Save
     output_file = PROCESSED_PATH / "pre_split_data.parquet"
     df_final.to_parquet(output_file)
     print(f"✅ Saved processed data to: {output_file}")
     print(f"   Final Shape: {df_final.shape}")
-    
-    # 8. Reporting
+
+    # 9. Reporting
     print("📝 Generating Reports...")
     reporting.save_sample_table(df_final)
     reporting.save_feature_stats(df_final)
-    reporting.save_regression_target_statistics(df_final)
 
 if __name__ == "__main__":
     main()

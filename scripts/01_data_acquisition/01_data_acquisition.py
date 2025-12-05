@@ -1,9 +1,12 @@
 """
-This script downloads historical 1-minute adjusted bar data for QQQ and NVDA
-from the Alpaca Market Data API for a configured date range.
-It uses direct HTTP requests (requests lib) to the Alpaca API to avoid SDK auth issues,
-converts timestamps to US/Eastern, filters only regular market hours (09:30–16:00 ET),
-and writes one cleaned Parquet file per symbol.
+This script downloads historical 1-minute adjusted bar data for QQQ, NVDA,
+AAPL, MSFT, GOOGL and AMZN from the Alpaca Market Data API for a configured
+date range.
+
+It uses direct HTTP requests (requests lib) to the Alpaca API to avoid SDK
+auth issues, uses the official US market calendar to keep only regular
+trading session bars (including short days), and writes one cleaned
+Parquet file per symbol.
 
 Inputs:
 - API keys from ../../conf/keys.yaml
@@ -12,8 +15,8 @@ Inputs:
 
 Outputs:
 - One Parquet per symbol under <DATA_PATH> (e.g. ../../data/raw/QQQ_1m.parquet)
-- Timestamps are stored as ISO-formatted strings (YYYY-MM-DD HH:MM:SS)
 - Columns: timestamp, open, high, low, close, volume, trade_count, vwap
+  (timestamp stored as ISO string: YYYY-MM-DD HH:MM:SS)
 """
 
 import requests
@@ -23,10 +26,13 @@ import pytz
 import yaml
 import os
 import time as time_module
+from alpaca.trading.client import TradingClient
+from alpaca.trading.requests import GetCalendarRequest
 
 # ============================================================
 # LOAD CONFIGURATION (API KEYS + PARAMETERS)
 # ============================================================
+
 # Load API credentials from YAML configuration file
 try:
     keys = yaml.safe_load(open("../../conf/keys.yaml"))
@@ -41,8 +47,14 @@ try:
     params = yaml.safe_load(open("../../conf/params.yaml"))
     PATH_BARS = params["DATA_ACQUISITON"]["DATA_PATH"]
     # Create timezone-aware datetime objects in UTC
-    START_DATE = datetime.strptime(params["DATA_ACQUISITON"]["START_DATE"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    END_DATE = datetime.now(timezone.utc)  # Use current time in UTC as the end date
+    START_DATE = datetime.strptime(
+        params["DATA_ACQUISITON"]["START_DATE"], "%Y-%m-%d"
+    ).replace(tzinfo=timezone.utc)
+    end_date_str = params["DATA_ACQUISITON"].get("END_DATE")
+    if end_date_str:
+        END_DATE = datetime.strptime(end_date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    else:
+        END_DATE = datetime.now(timezone.utc)
 except Exception as e:
     print(f"Error loading params.yaml: {e}")
     exit(1)
@@ -61,38 +73,47 @@ BASE_URL = "https://data.alpaca.markets/v2"
 TICKERS = ["QQQ", "NVDA", "AAPL", "MSFT", "GOOGL", "AMZN"]
 
 # ============================================================
-# DEFINE REGULAR TRADING HOURS
+# BUILD OFFICIAL US MARKET CALENDAR (REGULAR TRADING HOURS)
 # ============================================================
+trading_client = TradingClient(API_KEY, SECRET_KEY)
+
+# Get market calendar for the requested period (dates only)
+cal_request = GetCalendarRequest(start=START_DATE.date(), end=END_DATE.date())
+calendar = trading_client.get_calendar(cal_request)
+
+# Build lookup table (date → open_dt, close_dt) in US/Eastern
+cal_map = {}
 eastern = pytz.timezone("US/Eastern")
-MARKET_OPEN = time(9, 30)
-MARKET_CLOSE = time(16, 0)
 
-def is_regular_trading_hour(ts_str):
-    """
-    Returns True if the given timestamp falls within regular trading hours
-    (09:30-16:00 ET) on a weekday.
-    """
-    # Parse timestamp string (Alpaca returns ISO format)
-    ts = pd.to_datetime(ts_str)
-    
-    # Convert to US/Eastern
-    if ts.tzinfo:
-        ts_eastern = ts.astimezone(eastern)
-    else:
-        ts_eastern = ts.tz_localize("UTC").astimezone(eastern)
+for c in calendar:
+    # c.open and c.close are naive datetimes in ET
+    open_dt = eastern.localize(c.open)
+    close_dt = eastern.localize(c.close)
+    cal_map[c.date] = (open_dt, close_dt)
 
-    # Check if it's a weekday (Monday=0, Sunday=6)
-    if ts_eastern.weekday() >= 5:  # Saturday or Sunday
+
+def check_open(ts: pd.Timestamp) -> bool:
+    """
+    Return True if the timestamp lies within the regular session
+    for its day based on the official exchange calendar.
+    """
+    # ts is expected to be timezone-aware (UTC) after pd.to_datetime(..., utc=True)
+    ts_eastern = ts.tz_convert(eastern) if ts.tzinfo else ts.tz_localize("UTC").astimezone(eastern)
+    d = ts_eastern.date()
+    if d not in cal_map:
         return False
-    
-    # Check if time is within market hours
-    ts_time = ts_eastern.time()
-    return MARKET_OPEN <= ts_time < MARKET_CLOSE
+    open_dt, close_dt = cal_map[d]
+    return open_dt <= ts_eastern < close_dt
+
 
 # ============================================================
 # MAIN DATA ACQUISITION LOOP
 # ============================================================
-print(f"Fetching 1-minute bars for {TICKERS} from {START_DATE.date()} to {END_DATE.date()}")
+
+print(
+    f"Fetching 1-minute bars for {TICKERS} "
+    f"from {START_DATE.date()} to {END_DATE.date()}"
+)
 
 for symbol in TICKERS:
     print(f"\nDownloading 1m bars for {symbol}...")
@@ -100,14 +121,14 @@ for symbol in TICKERS:
         "APCA-API-KEY-ID": API_KEY,
         "APCA-API-SECRET-KEY": SECRET_KEY
     }
-    
-    # Format dates for API
+
+    # Format dates for API (date strings)
     start_str = START_DATE.strftime("%Y-%m-%d")
     end_str = END_DATE.strftime("%Y-%m-%d")
-    
+
     all_bars = []
     page_token = None
-    
+
     while True:
         # Request parameters
         params_req = {
@@ -119,84 +140,115 @@ for symbol in TICKERS:
             "feed": "iex",  # Free IEX feed
             "sort": "asc"   # Explicitly request oldest first
         }
-        
+
         if page_token:
             params_req["page_token"] = page_token
-            
+
         try:
             response = requests.get(
-                f"{BASE_URL}/stocks/{symbol}/bars", 
-                headers=headers, 
+                f"{BASE_URL}/stocks/{symbol}/bars",
+                headers=headers,
                 params=params_req
             )
-            
+
             if response.status_code != 200:
                 print(f"  Error: {response.status_code} - {response.text}")
                 break
-                
+
             data = response.json()
             bars = data.get("bars", [])
-            
+
             if not bars:
                 break
-                
+
             all_bars.extend(bars)
-            
+
             # Progress update
-            last_bar_time = bars[-1]['t']
-            print(f"  Fetched {len(bars)} bars. Total: {len(all_bars)}. Last timestamp: {last_bar_time}")
-            
+            last_bar_time = bars[-1]["t"]
+            print(
+                f"  Fetched {len(bars)} bars. Total: {len(all_bars)}. "
+                f"Last timestamp: {last_bar_time}"
+            )
+
             page_token = data.get("next_page_token")
             if not page_token:
                 break
-                
-            time_module.sleep(0.5) # Rate limit niceness
-            
+
+            time_module.sleep(0.5)  # Rate limit niceness
+
         except Exception as e:
             print(f"  Exception fetching data: {e}")
             break
 
     if not all_bars:
-        print(f"  No data fetched for {symbol}. Check your API keys or date range.")
+        print(
+            f"  No data fetched for {symbol}. "
+            f"Check your API keys or date range."
+        )
         continue
 
+    # --------------------------------------------------------
     # Process Data
+    # --------------------------------------------------------
     df = pd.DataFrame(all_bars)
-    
+
     # Rename columns (including trade_count and vwap)
-    df = df.rename(columns={
-        "t": "timestamp",
-        "o": "open",
-        "h": "high",
-        "l": "low",
-        "c": "close",
-        "v": "volume",
-        "n": "trade_count",
-        "vw": "vwap"
-    })
-    
+    df = df.rename(
+        columns={
+            "t": "timestamp",
+            "o": "open",
+            "h": "high",
+            "l": "low",
+            "c": "close",
+            "v": "volume",
+            "n": "trade_count",
+            "vw": "vwap",
+        }
+    )
+
     # Keep relevant columns
     df = df[["timestamp", "open", "high", "low", "close", "volume", "trade_count", "vwap"]]
-    
-    # Convert timestamp to ISO string format (YYYY-MM-DD HH:MM:SS)
-    # First convert to datetime with UTC, then format as string
-    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.strftime("%Y-%m-%d %H:%M:%S")
-    
+
+    # Convert timestamp to timezone-aware datetime (UTC)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+
     print(f"  Raw data rows: {len(df)}")
     print(f"  Raw date range: {df['timestamp'].min()} to {df['timestamp'].max()}")
-    
-    # Filter RTH (must convert string back to datetime for filtering)
-    print(f"  Filtering for regular trading hours (09:30-16:00 ET)...")
-    
-    df["is_rth"] = df["timestamp"].map(is_regular_trading_hour)
-    df_filtered = df[df["is_rth"]].copy()
-    
-    print(f"  Rows after filtering: {len(df_filtered)} (Dropped {len(df) - len(df_filtered)})")
+
+    # Filter using official exchange calendar (regular trading hours incl. short days)
+    print("  Filtering for regular market hours based on exchange calendar...")
+
+    df["is_open"] = df["timestamp"].map(check_open)
+    df_filtered = df[df["is_open"]].copy()
+
+    print(
+        f"  Rows after filtering: {len(df_filtered)} "
+        f"(Dropped {len(df) - len(df_filtered)})"
+    )
     if not df_filtered.empty:
-        print(f"  Filtered date range: {df_filtered['timestamp'].min()} to {df_filtered['timestamp'].max()}")
-    
-    df_filtered.drop(columns=["is_rth"], inplace=True)
-    
+        print(
+            f"  Filtered date range: "
+            f"{df_filtered['timestamp'].min()} to {df_filtered['timestamp'].max()}"
+        )
+
+    df_filtered.drop(columns=["is_open"], inplace=True)
+
+    df_filtered = df_filtered.sort_values("timestamp")
+
+    before_dedup = len(df_filtered)
+    df_filtered = df_filtered.drop_duplicates(subset=["timestamp"])
+    after_dedup = len(df_filtered)
+
+    if before_dedup != after_dedup:
+        print(f"  Removed {before_dedup - after_dedup} duplicate timestamps")
+    if df_filtered.empty:
+        print(f"  ⚠️ Skipping {symbol}: No market hour data after filtering")
+        continue
+
+
+    # Optional: store timestamp as string for compatibility (as in your pipeline)
+    df_filtered["timestamp"] = df_filtered["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
+
     # Save as Parquet
     out_path = os.path.join(PATH_BARS, f"{symbol}_1m.parquet")
     df_filtered.to_parquet(out_path, index=False)

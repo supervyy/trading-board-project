@@ -33,7 +33,7 @@ TECH_SYMBOLS = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN"]
 
 def load_and_sync_data():
     """
-    Load raw data, sync timestamps, and filter market hours.
+    Load raw data and sync timestamps across all symbols.
     """
     dfs = []
     print("⏳ Loading data...")
@@ -41,18 +41,13 @@ def load_and_sync_data():
         path = DATA_PATH / f"{sym}_1m.parquet"
         try:
             df = pd.read_parquet(path)
+
+            # Timestamp in Datetime konvertieren und als Index setzen
             if "timestamp" in df.columns:
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
                 df = df.set_index("timestamp").sort_index()
 
-            # Timezone handling
-            if df.index.tz is None:
-                df.index = df.index.tz_localize("UTC")
-            df = df.tz_convert("America/New_York")
-
-            # Filter to US Market Hours: 9:30 - 16:00 NY Time
-            df = df.between_time("09:30", "16:00")
-
+            # KEIN Timezone-Handling, KEIN between_time mehr!
             dfs.append((sym, df))
             print(f"   ✅ Loaded {sym}: {df.shape[0]:,} rows")
         except FileNotFoundError:
@@ -62,8 +57,9 @@ def load_and_sync_data():
 
     if not dfs:
         print("❌ No data loaded. Please check your raw data files.")
-    else:
-        print(f"✅ Successfully loaded data for {len(dfs)} symbols.")
+        return []
+
+    print(f"✅ Successfully loaded data for {len(dfs)} symbols.")
 
     # Align all symbols on the same timestamp index (inner join)
     print("🕒 Aligning timestamps across all symbols...")
@@ -79,6 +75,7 @@ def load_and_sync_data():
 
     print("✅ Timestamps aligned across all symbols.")
     return aligned_dfs
+
 
 
 def main():

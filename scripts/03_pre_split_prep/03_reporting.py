@@ -171,6 +171,3 @@ def save_feature_stats(df):
             mean_val = df[col].mean()
             std_val = df[col].std()
             print(f"   {col}: mean={mean_val:.6f}, std={std_val:.6f}")
-
-
-

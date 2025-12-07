@@ -17,7 +17,7 @@ def save_sample_tables(train_df, val_df, test_df, feature_cols, main_target, suf
         if len(df) == 0:
             return
             
-        sample = df.sample(min(5, len(df)), random_state=42)
+        sample = df.sample(min(15, len(df)), random_state=42)
         
         # Ensure timestamp is available if possible (for X)
         if "timestamp" not in sample.columns:
@@ -47,6 +47,10 @@ def save_sample_tables(train_df, val_df, test_df, feature_cols, main_target, suf
             y_cols = ["timestamp"] + y_cols
             
         final_y_cols = [c for c in y_cols if c in sample.columns]
+
+        if "scaled" in suffix:
+            # Skip saving y for scaled step, as requested (it's same as unscaled)
+            return
 
         if not final_y_cols:
              print(f"   [WARNING] Target {main_target} not found in {name} sample!")

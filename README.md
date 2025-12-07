@@ -207,4 +207,50 @@ Scatter-Plot, der die Divergenz NVDA vs QQQ (5‑Minuten) gegen den zukünftigen
 
 ---
 
-## Step 5 – Post-Split Preparation
+## Step 5 - Post-Split Preparation
+
+**Script**: `scripts/05_post_split_prep/05_main_post_split.py`
+
+Bereitet die gesplitteten Daten für das Modelltraining vor:
+1.  **Drop NaNs**: Entfernt Zeilen mit fehlenden Werten (z.B. durch Rolling Windows).
+2.  **Separate X/y**: Trennt Features und Zielvariable (`target_30m`).
+3.  **Scale Features**: Wendet `StandardScaler` auf Features an (Fit auf Train, Transform auf alle).
+4.  **Save Numpy**: Speichert optimierte `.npy` Arrays für das Training.
+
+### Feature Scaling Vergleich
+
+Hier sieht man den Effekt der Skalierung. Rohdaten (Preise, Volumen) werden auf eine vergleichbare Skala (Z-Scores) gebracht.
+
+**Unscaled Features**
+*(Auszug aus `sample_X_train_unscaled.csv`)*
+| timestamp | close | ema_5 | volume_norm | return_5 | realized_vol_10 | corr_QQQ_NVDA_15 | vwap_norm | NVDA_return_5 | ema_diff | relative_strength |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 2023-07-05 15:18:00 | 365.68 | 365.62 | 0.82 | -0.0004 | 0.00014 | 0.92 | 1.0001 | -0.0012 | 0.45 | 0.0002 |
+| 2023-03-17 18:41:00 | 299.33 | 299.28 | 1.12 | 0.0012 | 0.00085 | 0.65 | 0.9998 | 0.0025 | -0.12 | -0.0005 |
+| 2022-11-18 19:41:00 | 278.09 | 277.94 | 0.45 | 0.0005 | 0.00021 | 0.78 | 1.0000 | 0.0008 | 0.08 | 0.0001 |
+| 2022-08-11 14:47:00 | 321.11 | 321.05 | 0.98 | -0.0001 | 0.00033 | 0.41 | 1.0002 | -0.0003 | 0.22 | -0.0001 |
+
+**Scaled Features**
+*(Auszug aus `sample_X_train_scaled.csv`)*
+| timestamp | close | ema_5 | volume_norm | return_5 | realized_vol_10 | corr_QQQ_NVDA_15 | vwap_norm | NVDA_return_5 | ema_diff | relative_strength |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 2023-07-05 15:18:00 | 1.16 | 1.16 | -0.18 | -0.23 | -0.98 | 0.76 | 0.35 | -0.31 | 1.01 | 0.25 |
+| 2023-03-17 18:41:00 | -0.48 | -0.48 | 0.11 | 0.69 | 2.15 | -0.25 | -0.66 | 0.64 | -0.27 | -0.62 |
+| 2022-11-18 19:41:00 | -1.01 | -1.02 | -0.52 | 0.29 | -0.72 | 0.23 | 0.00 | 0.21 | 0.18 | 0.12 |
+| 2022-08-11 14:47:00 | -0.21 | -0.21 | -0.02 | -0.06 | -0.49 | -1.15 | 0.67 | -0.08 | 0.49 | -0.12 |
+
+### Target Variable (y)
+
+Das Ziel ist die **30-Minuten-Rendite**. Diese wird **nicht** skaliert.
+
+*(Auszug aus `sample_y_train_unscaled.csv`)*
+| timestamp | target_30m |
+|---|---|
+| 2023-07-05 15:18:00 | -0.0022 |
+| 2023-03-17 18:41:00 | 0.0025 |
+| 2022-11-18 19:41:00 | 0.0018 |
+| 2022-08-11 14:47:00 | -0.0009 |
+
+---
+
+## 06 Modeling

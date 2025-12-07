@@ -14,12 +14,12 @@ DATA_PATH = PROJECT_ROOT / "data" / "processed"
 MODELS_PATH = PROJECT_ROOT / "models"
 
 class SimpleNN(nn.Module):
-    def __init__(self, input_dim):
+    def __init__(self, input_dim, output_dim=1):
         super(SimpleNN, self).__init__()
         self.layer1 = nn.Linear(input_dim, 64)
         self.relu = nn.ReLU()
         self.layer2 = nn.Linear(64, 32)
-        self.layer3 = nn.Linear(32, 1)
+        self.layer3 = nn.Linear(32, output_dim)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -42,9 +42,14 @@ def load_data():
         
         # Convert to Tensor
         X_train_t = torch.FloatTensor(X_train)
-        y_train_t = torch.FloatTensor(y_train).view(-1, 1)
+        y_train_t = torch.FloatTensor(y_train)
+        if len(y_train.shape) == 1:
+            y_train_t = y_train_t.view(-1, 1)
+
         X_val_t = torch.FloatTensor(X_val)
-        y_val_t = torch.FloatTensor(y_val).view(-1, 1)
+        y_val_t = torch.FloatTensor(y_val)
+        if len(y_val.shape) == 1:
+            y_val_t = y_val_t.view(-1, 1)
         
         return X_train_t, y_train_t, X_val_t, y_val_t
     except FileNotFoundError:
@@ -60,7 +65,8 @@ def evaluate_models(X_train, y_train, X_val, y_val):
         print(f"   Loading NN from {nn_path}...")
         
         input_dim = X_train.shape[1]
-        model = SimpleNN(input_dim)
+        output_dim = y_train.shape[1] if len(y_train.shape) > 1 else 1
+        model = SimpleNN(input_dim, output_dim)
         model.load_state_dict(torch.load(nn_path))
         model.eval()
         
@@ -68,11 +74,12 @@ def evaluate_models(X_train, y_train, X_val, y_val):
         with torch.no_grad():
             train_preds = model(X_train)
             train_preds_cls = (train_preds > 0.5).float()
-            train_acc = (train_preds_cls.eq(y_train).sum() / y_train.shape[0]).item()
+            # Accuracy over all predictions (flattened)
+            train_acc = (train_preds_cls.eq(y_train).sum() / y_train.numel()).item()
             
             val_preds = model(X_val)
             val_preds_cls = (val_preds > 0.5).float()
-            val_acc = (val_preds_cls.eq(y_val).sum() / y_val.shape[0]).item()
+            val_acc = (val_preds_cls.eq(y_val).sum() / y_val.numel()).item()
         
         print("\n   🧠 Neural Network Results:")
         print(f"      Train Accuracy: {train_acc:.4f}")
@@ -87,10 +94,16 @@ def evaluate_models(X_train, y_train, X_val, y_val):
         tree_model = joblib.load(tree_path)
         
         # Convert back to numpy for sklearn
+        # Convert back to numpy for sklearn
         X_train_np = X_train.numpy()
-        y_train_np = y_train.numpy().ravel()
+        y_train_np = y_train.numpy()
+        if y_train_np.ndim == 2 and y_train_np.shape[1] == 1:
+            y_train_np = y_train_np.ravel()
+            
         X_val_np = X_val.numpy()
-        y_val_np = y_val.numpy().ravel()
+        y_val_np = y_val.numpy()
+        if y_val_np.ndim == 2 and y_val_np.shape[1] == 1:
+            y_val_np = y_val_np.ravel()
         
         train_acc = tree_model.score(X_train_np, y_train_np)
         val_acc = tree_model.score(X_val_np, y_val_np)

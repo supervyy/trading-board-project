@@ -28,12 +28,12 @@ MODELS_PATH.mkdir(parents=True, exist_ok=True)
 IMAGES_PATH.mkdir(parents=True, exist_ok=True)
 
 class SimpleNN(nn.Module):
-    def __init__(self, input_dim):
+    def __init__(self, input_dim, output_dim=1):
         super(SimpleNN, self).__init__()
         self.layer1 = nn.Linear(input_dim, 64)
         self.relu = nn.ReLU()
         self.layer2 = nn.Linear(64, 32)
-        self.layer3 = nn.Linear(32, 1)
+        self.layer3 = nn.Linear(32, output_dim)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -56,9 +56,14 @@ def load_data():
 
         # Convert to PyTorch tensors
         X_train_tensor = torch.FloatTensor(X_train)
-        y_train_tensor = torch.FloatTensor(y_train).view(-1, 1)
+        y_train_tensor = torch.FloatTensor(y_train)
+        if len(y_train.shape) == 1:
+            y_train_tensor = y_train_tensor.view(-1, 1)
+            
         X_val_tensor = torch.FloatTensor(X_val)
-        y_val_tensor = torch.FloatTensor(y_val).view(-1, 1)
+        y_val_tensor = torch.FloatTensor(y_val)
+        if len(y_val.shape) == 1:
+            y_val_tensor = y_val_tensor.view(-1, 1)
         
         print(f"   ✅ Data Loaded & Binarized: X_train: {X_train.shape}, y_train: {y_train.shape}")
         return X_train_tensor, y_train_tensor, X_val_tensor, y_val_tensor, X_train, y_train, X_val, y_val
@@ -72,7 +77,9 @@ def train_neural_network(X_train, y_train, X_val, y_val):
     print("\n🧠 Training Neural Network (PyTorch MLP)...")
     
     input_dim = X_train.shape[1]
-    model = SimpleNN(input_dim)
+    # Handle output dim (1 or 3 etc)
+    output_dim = y_train.shape[1] if len(y_train.shape) > 1 else 1
+    model = SimpleNN(input_dim, output_dim)
     
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
@@ -149,9 +156,14 @@ def train_decision_tree(X_train, y_train, X_val, y_val):
     # I will just call .numpy() on tensors.
     
     X_train_np = X_train.numpy()
-    y_train_np = y_train.numpy().ravel() # Flatten to 1D
+    y_train_np = y_train.numpy()
+    if y_train_np.ndim == 2 and y_train_np.shape[1] == 1:
+        y_train_np = y_train_np.ravel()
+        
     X_val_np = X_val.numpy()
-    y_val_np = y_val.numpy().ravel()
+    y_val_np = y_val.numpy()
+    if y_val_np.ndim == 2 and y_val_np.shape[1] == 1:
+        y_val_np = y_val_np.ravel()
     
     clf = DecisionTreeClassifier(random_state=42)
     clf.fit(X_train_np, y_train_np)

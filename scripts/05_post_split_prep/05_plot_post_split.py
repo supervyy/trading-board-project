@@ -38,7 +38,11 @@ def save_sample_tables(train_df, val_df, test_df, feature_cols, main_target, suf
         
         # --- Save y (Target) ---
         # Target + Timestamp (for reference)
-        y_cols = [main_target]
+        if isinstance(main_target, list):
+            y_cols = main_target[:]
+        else:
+            y_cols = [main_target]
+            
         if "timestamp" in sample.columns:
             y_cols = ["timestamp"] + y_cols
             

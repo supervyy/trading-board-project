@@ -6,16 +6,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(PROJECT_ROOT / "scripts"))
 # Add current directory to path to allow importing modules starting with digits (if we kept them)
 # or just to import local modules easily.
-sys.path.append(str(PROJECT_ROOT / "scripts" / "04_post_split_prep"))
+sys.path.append(str(PROJECT_ROOT / "scripts" / "05_post_split_prep"))
 
 
 import importlib
 
 # Dynamic imports for modules starting with numbers
-data_loader = importlib.import_module("04_data_loader")
-scale_data = importlib.import_module("04_scale_data")
-build_matrices = importlib.import_module("04_build_matrices")
-plot_post_split = importlib.import_module("04_plot_post_split")
+data_loader = importlib.import_module("05_data_loader")
+scale_data = importlib.import_module("05_scale_data")
+build_matrices = importlib.import_module("05_build_matrices")
+plot_post_split = importlib.import_module("05_plot_post_split")
 
 def main():
     print("1. Loading data (pre-split)...")

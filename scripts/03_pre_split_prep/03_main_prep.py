@@ -166,13 +166,13 @@ def main():
 
     # 7. Plots
     print("📊 Generating Plots...")
+    dfs_dict = {sym: df for sym, df in dfs_raw}
+    plots.plot_regression_targets_distribution(df_final)
+    plots.plot_feature_target_correlation(df_final)
+    plots.plot_scatter_returns(df_final)
     plots.plot_ema(df_final)
     plots.plot_rolling_corr(df_final)
-    plots.plot_regression_targets_distribution(df_final)
-    print("   ...plotting feature correlation on TRAIN set only...")
-    plots.plot_feature_target_correlation(train_df)
-    plots.plot_scatter_returns(df_final)
-
+    plots.plot_lead_lag_corrected(dfs_dict)
     # 8. Save
     output_file = PROCESSED_PATH / "pre_split_data.parquet"
     df_final.to_parquet(output_file)
@@ -182,7 +182,6 @@ def main():
     # 9. Reporting
     print("📝 Generating Reports...")
     reporting.save_sample_table(df_final)
-
 
 if __name__ == "__main__":
     main()

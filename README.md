@@ -118,6 +118,44 @@ Zeigt die Korrelationen der 1‑Minuten-Renditen zwischen QQQ und Top-Tech-Aktie
 
 [scripts/03_pre_split_prep/03_plot_features.py](scripts/03_pre_split_prep/03_plot_features.py)
 
+**Plots**
+
+**QQQ: EMA(5) vs EMA(20) vs Close**
+
+Vergleicht den Close-Preis mit den beiden exponentiellen gleitenden Durchschnitten (EMA 5 und EMA 20). Zeigt, wie schnelle und langsame Trends sich bewegen und Crossover-Signale entstehen.
+
+![QQQ EMA Structure](images/data_preparation/qqq_ema_structure.png)
+
+**Scatter: 5‑Min Returns (NVDA vs QQQ) mit Regressionslinie**
+
+Zeigt die Beziehung zwischen 5-Minuten-Renditen von NVDA und QQQ mit Regressionslinie. Der positive Trend deutet auf eine starke positive Korrelation zwischen beiden Assets hin.
+
+![Scatter NVDA vs QQQ](images/data_preparation/qqq_nvda_scatter_returns.png)
+
+**Rolling 15‑Min Korrelation (QQQ vs NVDA) – Handelszeiten**
+
+Zeigt die zeitlich veränderliche Korrelation zwischen QQQ und NVDA über 15 Minuten während der regulären Handelszeiten. Schwankungen zwischen hoher positiver und negativer Korrelation deuten auf sich ändernde Marktdynamiken hin.
+
+![Rolling Correlation QQQ NVDA](images/data_preparation/qqq_nvda_rolling_correlation.png)
+
+**Divergenz NVDA vs QQQ (5‑Min-Returns)**
+
+Visualisiert die Differenz zwischen NVDA- und QQQ-5-Minuten-Renditen über die Zeit. Positive Ausschläge zeigen NVDA-Überperformance, negative Werte QQQ-Überperformance; nützlich zum Erkennen kurzfristiger Lead/Lag-Muster.
+
+![Divergenz NVDA vs QQQ](images/data_preparation/divergence_nvda_qqq_timeseries.png)
+
+**Momentum-Spread der Tech-Aktien (5‑Min-Returns)**
+
+Zeigt die Standardabweichung (Spread) der 5‑Minuten-Renditen der Tech-Aktien über die Zeit — nützlich, um Perioden erhöhter Dispersion/Momentum innerhalb der Gruppe zu erkennen.
+
+![Momentum-Spread der Tech-Aktien](images/data_preparation/momentum_spread_5_timeseries.png)
+
+**Divergenz vs. zukünftiger QQQ-Return (5 Min)**
+
+Scatter-Plot, der die Divergenz NVDA vs QQQ (5‑Minuten) gegen den zukünftigen QQQ-Return (5 Min) darstellt. Hilfreich, um zu prüfen, ob Divergenz kurzfristige QQQ-Bewegungen vorhersagt.
+
+![Divergenz vs Future QQQ Return](images/data_preparation/divergence_nvda_vs_target_5m.png)
+
 ### Deskriptive Statistik - Targets
 
 | Zeitraum | count | mean | std | min | 25% | 50% | 75% | max |
@@ -160,3 +198,13 @@ Zeigt die Korrelationen der 1‑Minuten-Renditen zwischen QQQ und Top-Tech-Aktie
 
 ![Sample Features with Regression Targets](images/data_preparation/sample_features.png)
 
+---
+
+## 4 - Data-Split 
+**Script**
+
+[split_data.py](scripts/04_split_data/04_split_data.py)
+
+---
+
+## Step 5 – Post-Split Preparation

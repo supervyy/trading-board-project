@@ -12,14 +12,12 @@ features = importlib.import_module("03_features")
 targets = importlib.import_module("03_targets")
 plots = importlib.import_module("03_plot_features")
 reporting = importlib.import_module("03_reporting")
-splitting = importlib.import_module("03_splitting")
 
 # Reload modules to ensure latest changes are picked up if run interactively
 importlib.reload(features)
 importlib.reload(targets)
 importlib.reload(plots)
 importlib.reload(reporting)
-importlib.reload(splitting)
 
 # Paths
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -75,8 +73,6 @@ def load_and_sync_data():
 
     print("✅ Timestamps aligned across all symbols.")
     return aligned_dfs
-
-
 
 def main():
     # 1. Load Data
@@ -160,29 +156,29 @@ def main():
     # 5b. Feature Statistics
     print("📊 Saving feature descriptive statistics...")
     reporting.save_feature_stats(df_final)
-    # 6. Splitting
-    print("✂️ Splitting Data...")
-    train_df, val_df, test_df = splitting.split_data(df_final)
-
-    # 7. Plots
+   
+    # 6. Plots
     print("📊 Generating Plots...")
+    dfs_dict = {sym: df for sym, df in dfs_raw}
+    plots.plot_regression_targets_distribution(df_final)
+    plots.plot_feature_target_correlation(df_final)
+    plots.plot_scatter_returns(df_final)
     plots.plot_ema(df_final)
     plots.plot_rolling_corr(df_final)
-    plots.plot_regression_targets_distribution(df_final)
-    print("   ...plotting feature correlation on TRAIN set only...")
-    plots.plot_feature_target_correlation(train_df)
-    plots.plot_scatter_returns(df_final)
+    plots.plot_lead_lag_corrected(dfs_dict)
+    plots.plot_divergence_nvda_qqq_timeseries(df_final)
+    plots.plot_divergence_nvda_vs_target(df_final)
+    plots.plot_momentum_spread_timeseries(df_final)
 
-    # 8. Save
+    # 7. Save
     output_file = PROCESSED_PATH / "pre_split_data.parquet"
     df_final.to_parquet(output_file)
     print(f"✅ Saved processed data to: {output_file}")
     print(f"   Final Shape: {df_final.shape}")
 
-    # 9. Reporting
+    # 8. Reporting
     print("📝 Generating Reports...")
     reporting.save_sample_table(df_final)
-
 
 if __name__ == "__main__":
     main()

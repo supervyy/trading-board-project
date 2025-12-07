@@ -27,6 +27,9 @@ def main():
     print(f"   Main target: {main_target}")
     print(f"   Number of features: {len(feature_cols)}")
     
+    print("2b. Saving UNSCALED samples...")
+    plot_post_split.save_sample_tables(train_df, val_df, test_df, feature_cols, main_target, suffix="unscaled")
+    
     print("3. Fitting scaler on Train...")
     scaler = scale_data.fit_scaler(train_df, feature_cols)
     
@@ -43,8 +46,8 @@ def main():
     print("6. Saving matrices...")
     build_matrices.save_matrices(X_train, y_train, X_val, y_val, X_test, y_test)
     
-    print("7. Generating samples...")
-    plot_post_split.save_sample_tables(train_scaled, val_scaled, test_scaled, feature_cols, main_target)
+    print("7. Generating SCALED samples...")
+    plot_post_split.save_sample_tables(train_scaled, val_scaled, test_scaled, feature_cols, main_target, suffix="scaled")
     
     print("\n--- Summary ---")
     print(f"Train samples: {len(train_df)}")

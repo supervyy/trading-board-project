@@ -8,40 +8,43 @@ sys.path.append(str(PROJECT_ROOT / "scripts"))
 # or just to import local modules easily.
 sys.path.append(str(PROJECT_ROOT / "scripts" / "04_post_split_prep"))
 
-# Now we can import the renamed modules directly
-from data_loader import load_split_data
-from scale_data import get_feature_and_target_cols, fit_scaler, apply_scaler
-from build_matrices import build_X_y, save_matrices
-from plot_post_split import save_sample_tables
+
+import importlib
+
+# Dynamic imports for modules starting with numbers
+data_loader = importlib.import_module("04_data_loader")
+scale_data = importlib.import_module("04_scale_data")
+build_matrices = importlib.import_module("04_build_matrices")
+plot_post_split = importlib.import_module("04_plot_post_split")
 
 def main():
     print("1. Loading data (pre-split)...")
     # Load already split data instead of splitting again
-    train_df, val_df, test_df = load_split_data()
+    train_df, val_df, test_df = data_loader.load_split_data()
     
     print("2. Identifying columns...")
-    feature_cols, target_cols, main_target = get_feature_and_target_cols(train_df)
+    feature_cols, target_cols, main_target = scale_data.get_feature_and_target_cols(train_df)
     print(f"   Main target: {main_target}")
     print(f"   Number of features: {len(feature_cols)}")
     
     print("3. Fitting scaler on Train...")
-    scaler = fit_scaler(train_df, feature_cols)
+    scaler = scale_data.fit_scaler(train_df, feature_cols)
     
     print("4. Applying scaler to Train, Val, Test...")
-    train_scaled = apply_scaler(scaler, train_df, feature_cols)
-    val_scaled = apply_scaler(scaler, val_df, feature_cols)
-    test_scaled = apply_scaler(scaler, test_df, feature_cols)
+    train_scaled = scale_data.apply_scaler(scaler, train_df, feature_cols)
+    val_scaled = scale_data.apply_scaler(scaler, val_df, feature_cols)
+    test_scaled = scale_data.apply_scaler(scaler, test_df, feature_cols)
     
     print("5. Building X/y matrices...")
-    X_train, y_train = build_X_y(train_scaled, feature_cols, main_target)
-    X_val, y_val = build_X_y(val_scaled, feature_cols, main_target)
-    X_test, y_test = build_X_y(test_scaled, feature_cols, main_target)
+    X_train, y_train = build_matrices.build_X_y(train_scaled, feature_cols, main_target)
+    X_val, y_val = build_matrices.build_X_y(val_scaled, feature_cols, main_target)
+    X_test, y_test = build_matrices.build_X_y(test_scaled, feature_cols, main_target)
     
     print("6. Saving matrices...")
-    save_matrices(X_train, y_train, X_val, y_val, X_test, y_test)
+    build_matrices.save_matrices(X_train, y_train, X_val, y_val, X_test, y_test)
     
     print("7. Generating samples...")
-    save_sample_tables(train_scaled, val_scaled, test_scaled, feature_cols, main_target)
+    plot_post_split.save_sample_tables(train_scaled, val_scaled, test_scaled, feature_cols, main_target)
     
     print("\n--- Summary ---")
     print(f"Train samples: {len(train_df)}")

@@ -34,8 +34,24 @@ def save_sample_table(df):
             return str(val)
     
     # Select and format columns - JETZT MIT REGRESSION TARGETS
-    priority_cols = ['close', 'ema_5', 'ema_diff', 'return_5', 'NVDA_return_5', 
-                     'corr_QQQ_NVDA_15', 'relative_strength', 'target_5m', 'target_15m']
+    priority_cols = [
+        "close",
+        "ema_5",
+        "ema_diff",
+        "return_5",
+        "volume_norm",
+        "volume_acceleration",
+        "NVDA_return_5",
+        "divergence_NVDA_QQQ_5",
+        "momentum_spread_5",
+        "nvda_volume_anomaly",
+        "corr_QQQ_NVDA_15",
+        "relative_strength",
+        "high_vol_regime",
+        "low_corr_regime",
+        "target_5m",
+        "target_15m",
+    ]
     
     display_cols = [c for c in priority_cols if c in sample.columns]
     sample_display = sample[display_cols].copy()

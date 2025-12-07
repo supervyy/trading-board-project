@@ -122,22 +122,43 @@ def plot_target_distribution(df):
 
 def plot_feature_target_correlation(df):
     """
-    Plot correlation between features and REGRESSION targets.
+    Plot correlation between selected features and REGRESSION targets.
     """
-    target_cols = [f"target_{w}m" for w in [5, 15, 30] if f"target_{w}m" in df.columns]
+    target_cols = [f"target_{w}m" for w in [5, 15, 30]
+                   if f"target_{w}m" in df.columns]
     if not target_cols:
         print("⚠️ No regression targets found")
         return
 
+    # Wichtigste Features – nur die, die es wirklich gibt, werden verwendet
     feature_cols = [
+        # QQQ Core
         "ema_diff",
         "return_5",
+        "realized_vol_10",
         "volume_norm",
-        "relative_strength",
-        "corr_QQQ_NVDA_15",
+        "volume_acceleration",
+        "volume_spike",
+        "bid_ask_spread_proxy",
+
+        # NVDA / Tech
         "NVDA_return_5",
+        "divergence_NVDA_QQQ_5",
+        "momentum_spread_5",
+        "nvda_volume_anomaly",
+
+        # Cross-Asset / Regime
+        "relative_strength",
+        "tech_unanimity",
+        "max_divergence",
+        "high_vol_regime",
+        "low_corr_regime",
     ]
-    available_features = [col for col in feature_cols if col in df.columns]
+    available_features = [c for c in feature_cols if c in df.columns]
+
+    if not available_features:
+        print("⚠️ No selected features found in dataframe.")
+        return
 
     corr_matrix = df[available_features + target_cols].corr()
     target_correlations = corr_matrix.loc[available_features, target_cols]
@@ -163,7 +184,6 @@ def plot_feature_target_correlation(df):
 
     print("\n📊 Feature-Target Correlations (Regression):")
     print(target_correlations.to_string())
-
 
 def plot_regression_targets_distribution(df):
     """
@@ -362,4 +382,121 @@ def plot_lead_lag_corrected(dfs):
         print(f"   → No clear lead-lag relationship (simultaneous movement)")
     
     print("✅ Lead-Lag Plots saved.")
+def plot_divergence_nvda_qqq_timeseries(df):
+    """
+    Zeitreihen-Plot der Divergenz zwischen NVDA und QQQ:
+    divergence_NVDA_QQQ_5 = NVDA_return_5 - return_5 (QQQ)
+
+    Zeigt, wie stark NVDA sich intraday vom QQQ entkoppelt.
+    """
+    col = "divergence_NVDA_QQQ_5"
+    if col not in df.columns:
+        print(f"⚠️ {col} nicht im DataFrame, überspringe Divergenz-Plot.")
+        return
+
+    if not isinstance(df.index, pd.DatetimeIndex):
+        print("⚠️ Index ist kein DatetimeIndex, verwende vollen Index ohne Tagesstruktur.")
+        df_plot = df.copy()
+    else:
+        df_plot = df.copy().sort_index()
+        # Auf die letzten ~20 Handelstage begrenzen (Lesbarkeit)
+        unique_days = sorted(pd.unique(df_plot.index.date))
+        if len(unique_days) > 20:
+            last_20 = unique_days[-20:]
+            mask = np.isin(df_plot.index.date, last_20)
+            df_plot = df_plot[mask]
+
+    sns.set_style("darkgrid")
+    plt.figure(figsize=(18, 6))
+
+    plt.plot(df_plot.index, df_plot[col], linewidth=1.0, alpha=0.9)
+    plt.axhline(0, color="black", linestyle="-", linewidth=1, alpha=0.7)
+
+    plt.title("Divergenz NVDA vs QQQ (5-Min-Returns)", fontsize=14)
+    plt.ylabel("NVDA_return_5 - QQQ_return_5", fontsize=12)
+    plt.xlabel("Zeit")
+
+    plt.tight_layout()
+    plt.savefig(IMG_PATH / "divergence_nvda_qqq_timeseries.png", dpi=300)
+    plt.close()
+    print("✅ Divergenz-Plot gespeichert: divergence_nvda_qqq_timeseries.png")
+
+
+def plot_divergence_nvda_vs_target(df):
+    """
+    Scatterplot: Divergenz (NVDA vs QQQ, 5-Min-Return) vs. zukünftiger QQQ-Return (target_5m).
+
+    Idee:
+    - x: divergence_NVDA_QQQ_5
+    - y: target_5m (future QQQ return in 5 Minuten)
+    """
+    if "divergence_NVDA_QQQ_5" not in df.columns or "target_5m" not in df.columns:
+        print("⚠️ divergence_NVDA_QQQ_5 oder target_5m nicht im DataFrame, überspringe Scatter-Plot.")
+        return
+
+    data = df[["divergence_NVDA_QQQ_5", "target_5m"]].dropna()
+
+    # Outlier clipping für bessere Lesbarkeit
+    limit_x = 0.03
+    limit_y = 0.03
+    mask = data["divergence_NVDA_QQQ_5"].between(-limit_x, limit_x) & data["target_5m"].between(-limit_y, limit_y)
+    data = data[mask]
+
+    sns.set_style("whitegrid")
+    plt.figure(figsize=(10, 8))
+
+    sns.regplot(
+        data=data,
+        x="divergence_NVDA_QQQ_5",
+        y="target_5m",
+        scatter_kws={"alpha": 0.2, "s": 18},
+        line_kws={"linewidth": 2},
+    )
+
+    plt.title("Divergenz NVDA–QQQ vs. zukünftiger QQQ-Return (5 Min)", fontsize=14)
+    plt.xlabel("Divergenz NVDA vs QQQ (5-Min-Return)", fontsize=12)
+    plt.ylabel("Future QQQ Return (target_5m)", fontsize=12)
+
+    plt.tight_layout()
+    plt.savefig(IMG_PATH / "divergence_nvda_vs_target_5m.png", dpi=300)
+    plt.close()
+    print("✅ Scatter-Plot gespeichert: divergence_nvda_vs_target_5m.png")
+
+
+def plot_momentum_spread_timeseries(df):
+    """
+    Zeitreihen-Plot des Momentum-Spreads:
+    momentum_spread_5 = Std-Abweichung der 5-Min-Returns der Tech-Aktien.
+
+    Hohe Werte => Tech-Aktien driften auseinander (mehr Disagreement).
+    Niedrige Werte => Tech-Aktien bewegen sich sehr ähnlich (starker gemeinsamer Trend).
+    """
+    col = "momentum_spread_5"
+    if col not in df.columns:
+        print(f"⚠️ {col} nicht im DataFrame, überspringe Momentum-Spread-Plot.")
+        return
+
+    if not isinstance(df.index, pd.DatetimeIndex):
+        print("⚠️ Index ist kein DatetimeIndex, verwende vollen Index ohne Tagesstruktur.")
+        df_plot = df.copy()
+    else:
+        df_plot = df.copy().sort_index()
+        unique_days = sorted(pd.unique(df_plot.index.date))
+        if len(unique_days) > 20:
+            last_20 = unique_days[-20:]
+            mask = np.isin(df_plot.index.date, last_20)
+            df_plot = df_plot[mask]
+
+    sns.set_style("darkgrid")
+    plt.figure(figsize=(18, 6))
+
+    plt.plot(df_plot.index, df_plot[col], linewidth=1.0)
+    plt.title("Momentum-Spread der Tech-Aktien (5-Min-Returns)", fontsize=14)
+    plt.ylabel("Std. der Tech 5-Min-Returns", fontsize=12)
+    plt.xlabel("Zeit")
+
+    plt.tight_layout()
+    plt.savefig(IMG_PATH / "momentum_spread_5_timeseries.png", dpi=300)
+    plt.close()
+    print("✅ Momentum-Spread-Plot gespeichert: momentum_spread_5_timeseries.png")
 

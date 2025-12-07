@@ -138,6 +138,24 @@ Zeigt die zeitlich veränderliche Korrelation zwischen QQQ und NVDA über 15 Min
 
 ![Rolling Correlation QQQ NVDA](images/data_preparation/qqq_nvda_rolling_correlation.png)
 
+**Divergenz NVDA vs QQQ (5‑Min-Returns)**
+
+Visualisiert die Differenz zwischen NVDA- und QQQ-5-Minuten-Renditen über die Zeit. Positive Ausschläge zeigen NVDA-Überperformance, negative Werte QQQ-Überperformance; nützlich zum Erkennen kurzfristiger Lead/Lag-Muster.
+
+![Divergenz NVDA vs QQQ](images/data_preparation/divergence_nvda_qqq_timeseries.png)
+
+**Momentum-Spread der Tech-Aktien (5‑Min-Returns)**
+
+Zeigt die Standardabweichung (Spread) der 5‑Minuten-Renditen der Tech-Aktien über die Zeit — nützlich, um Perioden erhöhter Dispersion/Momentum innerhalb der Gruppe zu erkennen.
+
+![Momentum-Spread der Tech-Aktien](images/data_preparation/momentum_spread_5_timeseries.png)
+
+**Divergenz vs. zukünftiger QQQ-Return (5 Min)**
+
+Scatter-Plot, der die Divergenz NVDA vs QQQ (5‑Minuten) gegen den zukünftigen QQQ-Return (5 Min) darstellt. Hilfreich, um zu prüfen, ob Divergenz kurzfristige QQQ-Bewegungen vorhersagt.
+
+![Divergenz vs Future QQQ Return](images/data_preparation/divergence_nvda_vs_target_5m.png)
+
 ### Deskriptive Statistik - Targets
 
 | Zeitraum | count | mean | std | min | 25% | 50% | 75% | max |
@@ -180,3 +198,13 @@ Zeigt die zeitlich veränderliche Korrelation zwischen QQQ und NVDA über 15 Min
 
 ![Sample Features with Regression Targets](images/data_preparation/sample_features.png)
 
+---
+
+## 4 - Data-Split 
+**Script**
+
+[split_data.py](scripts/04_split_data/04_split_data.py)
+
+---
+
+## Step 5 – Post-Split Preparation

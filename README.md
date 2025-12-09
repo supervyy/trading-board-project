@@ -1,3 +1,4 @@
+```markdown
 # QQQ Trend Prediction mit Top Tech-Aktien
 
 ### Problem Definition:
@@ -28,16 +29,162 @@ Für jede Minute vom 2022-01-03 bis zum 2025-11-21 berechnen wir die erwartete P
 - Relative Stärke (QQQ Performance vs Tech-Durchschnitt)
 - Tech Momentum Leader (führende Tech-Aktie identifizieren)
 
-### Verfahrensübersicht:
-- Sammelt Minuten-Bars für QQQ und Top 5 Tech-Aktien von 2022-01-03 → 2025-11-21
-- Berechnet technische Features für QQQ und vereinfachte Cross-Asset Features
-- Sagt Trendrichtung über nächste 30 Minuten vorher mittels Neural Network
-- Nutzt Decision Tree zur Identifikation von Entry-Points
-- Implementiert Trading-Strategie in Alpaca
+---
+## 01 Data Acquisition
+Bezieht Rohmarktdaten für QQQ und Top Tech-Aktien von 2022-01-03 bis 2025-11-21, verwendet Alpaca Markets API als exklusive Datenquelle. Die Daten sind gefiltert auf reguläre Handelszeiten.
 
+**Script**
 
+[scripts/01_data_acquisition/01_data_acquisition.py](scripts/01_data_acquisition/01_data_acquisition.py)
 
-**Wir erwarten Muster zu finden, bei denen Tech-Aktien Momentum und Korrelationsänderungen QQQ Trendbewegungen vorausgehen.**
+Zieht **1-minute** adjustierte bars von **2022-01-03 → 2025-11-21** und schreibt `symbol.parquet` Dateien nach `../trading-board-project/data/raw/QQQ_1m`
+
+---
+
+## 03 Pre Split Preperation
+
+**Main Script**
+
+[main.py](scripts/03_pre_split_prep/03_main_prep.py)
+
+**Feature Engineering Script**
+
+[scripts/03_pre_split_prep/03_features.py](scripts/03_pre_split_prep/03_features.py)
+
+**Target Computation Script**
+
+[scripts/03_pre_split_prep/03_targets.py](scripts/03_pre_split_prep/03_targets.py)
+
+**Plotting Script**
+
+[scripts/03_pre_split_prep/03_plot_features.py](scripts/03_pre_split_prep/03_plot_features.py)
+
+**Divergenz vs. zukünftiger QQQ-Return (5 Min)** — Beispielplots und Statistiken.
+
+---
+
+## 4 - Data-Split 
+**Script**
+
+[split_data.py](scripts/04_split_data/04_split_data.py)
+
+---
+
+## Step 5 - Post-Split Preparation
+
+**Script**
+
+[05_main_post_split.py](scripts/05_post_split_prep/05_main_post_split.py)
+
+Bereitet die gesplitteten Daten für das Modelltraining vor:
+1.  **Drop NaNs**: Entfernt Zeilen mit fehlenden Werten (z.B. durch Rolling Windows).
+2.  **Separate X/y**: Trennt Features und Zielvariable (`target_30m`).
+3.  **Scale Features**: Wendet `StandardScaler` auf Features an (Fit auf Train, Transform auf alle).
+4.  **Save Numpy**: Speichert optimierte `.npy` Arrays für das Training.
+
+### Feature Scaling Vergleich (kompakt)
+
+Kurzer, kompakter Auszug aus den bereitgestellten CSVs (wenige Spalten). Vollständige Dateien: `data/processed/`.
+
+**`sample_X_train_unscaled.csv` — kompakter Auszug (4 Spalten, 6 Zeilen)**
+
+| ema_diff | return_5 | volume_norm | NVDA_return_5 |
+|---:|---:|---:|---:|
+|-0.08109537 | 0.00017005 | 1.12348178 | 0.00095900 |
+|-0.10397075 | 0.00118960 | 0.75332398 | 0.00073394 |
+|-0.85181476 | -0.00077961 | 0.50599606 | 0.00518242 |
+|0.09926313 | 0.00042489 | 0.73509672 | 0.00128824 |
+|-0.26607503 | 0.00061048 | 0.12960279 | 0.00397953 |
+|0.42973253 | -0.00078123 | 0.58049487 | 0.00064089 |
+
+*Vollständige Datei:* `data/processed/sample_X_train_unscaled.csv`
+
+**`sample_X_train_scaled.csv` — kompakter Auszug (4 Spalten, 6 Zeilen)**
+
+| ema_diff | return_5 | volume_norm | NVDA_return_5 |
+|---:|---:|---:|---:|
+|-0.18675001 | 0.07942148 | 0.10852180 | 0.22356107 |
+|-0.23891126 | 0.56327787 | -0.25347719 | 0.17013357 |
+|-1.94417202 | -0.37126816 | -0.49535364 | 1.22617831 |
+|0.22450992 | 0.20036217 | -0.27130269 | 0.30172141 |
+|-0.60854725 | 0.28844060 | -0.86345066 | 0.94061920 |
+|0.97805812 | -0.37203596 | -0.42249689 | 0.14804250 |
+
+*Vollständige Datei:* `data/processed/sample_X_train_scaled.csv`
+
+**`sample_y_train_unscaled.csv` — kompakter Auszug (2 Spalten, 6 Zeilen)**
+
+| target_5m | target_30m |
+|---:|---:|
+|-0.00226693 | -0.00294701 |
+|-0.00163776 | -0.00122030 |
+|-0.00099545 | -0.00051118 |
+|0.00009101 | 0.00239655 |
+|0.00136377 | -0.00907982 |
+|-0.00172005 | 0.00106852 |
+
+*Vollständige Datei:* `data/processed/sample_y_train_unscaled.csv`
+
+**`sample_y_train_scaled.csv` — kompakter Auszug (2 Spalten, 6 Zeilen)**
+
+| target_5m | target_30m |
+|---:|---:|
+|-0.00226693 | -0.00294701 |
+|-0.00163776 | -0.00122030 |
+|-0.00099545 | -0.00051118 |
+|0.00009101 | 0.00239655 |
+|0.00136377 | -0.00907982 |
+|-0.00172005 | 0.00106852 |
+
+*Vollständige Datei:* `data/processed/sample_y_train_scaled.csv`
+
+Hinweis: Aus Platz- und Lesbarkeitsgründen sind hier nur sehr kompakte Ausschnitte (erste 6 Zeilen) eingefügt. Wenn du noch schmaler willst, sage mir bitte genau welche Spalten (z. B. nur `ema_diff` + `return_5`).
+
+---
+
+## Step 6 – Feature Selection
+**Script**
+
+[06_feature_selection.py](scripts/06_feature_selection/06_feature_selection.py)
+
+| feature | target_5m | target_15m | target_30m |
+|---|---:|---:|---:|
+| **`ema_diff`** | -0.002232 | 0.010529 | 0.008679 |
+| **`return_5`** | -0.017092 | -0.006637 | 0.003839 |
+| **`realized_vol_10`** | -0.001225 | 0.001799 | -0.009868 |
+| **`volume_norm`** | -0.007416 | -0.004843 | -0.005991 |
+| **`NVDA_return_5`** | -0.011149 | -0.002574 | 0.009995 |
+
+```
+# QQQ Trend Prediction mit Top Tech-Aktien
+
+### Problem Definition:
+### Ziel
+
+Vorhersage der Preisrichtung über die nächsten t=[5, 15, 30] Minuten für den Invesco QQQ ETF (QQQ) unter Verwendung der Top 5 Tech-Aktien als Einflussfaktoren.
+
+Für jede Minute vom 2022-01-03 bis zum 2025-11-21 berechnen wir die erwartete Preisveränderung über das zukünftige Fenster t, während wir aktuelle technische Features von sowohl QQQ als auch Top-Tech-Aktien als Input-Predictors verwenden.
+
+### Input Features
+
+*QQQ Technische Features:*
+- Normalisierte VWAP und Volumen
+- Normalisierte exponentielle gleitende Durchschnitte (EMA) über [5, 10, 20] Minuten
+- EMA Differenz (EMA5 - EMA20)
+- Kurz- und mittelfristige Returns (5, 15, 30 Minuten)
+- Realisierte Volatilität (10 Minuten)
+
+*Top Tech-Aktien Features (NVDA, AAPL, MSFT, GOOGL, AMZN)*:
+- Normalisierte VWAP und Volumen für jede Aktie
+- EMA über [5, 10, 20] Minuten für jede Aktie
+- Kurz- und mittelfristige Returns (5, 15, 30 Minuten) für jede Aktie
+- EMA slopes für jede Aktie
+
+*Multi-Asset Relationship Features*:
+
+- Korrelation zwischen QQQ und Tech-Aktien (15 Minuten)
+- Relative Stärke (QQQ Performance vs Tech-Durchschnitt)
+- Tech Momentum Leader (führende Tech-Aktie identifizieren)
 
 ---
 ## 01 Data Acquisition
@@ -209,48 +356,171 @@ Scatter-Plot, der die Divergenz NVDA vs QQQ (5‑Minuten) gegen den zukünftigen
 
 ## Step 5 - Post-Split Preparation
 
-**Script**: `scripts/05_post_split_prep/05_main_post_split.py`
+**Script**
+
+[05_main_post_split.py](scripts/05_post_split_prep/05_main_post_split.py)
 
 Bereitet die gesplitteten Daten für das Modelltraining vor:
 1.  **Drop NaNs**: Entfernt Zeilen mit fehlenden Werten (z.B. durch Rolling Windows).
-2.  **Separate X/y**: Trennt Features und Zielvariable (`target_30m`).
+2.  **Separate X/y**: Trennt Features und Zielvariable.
 3.  **Scale Features**: Wendet `StandardScaler` auf Features an (Fit auf Train, Transform auf alle).
 4.  **Save Numpy**: Speichert optimierte `.npy` Arrays für das Training.
 
-### Feature Scaling Vergleich
 
-Hier sieht man den Effekt der Skalierung. Rohdaten (Preise, Volumen) werden auf eine vergleichbare Skala (Z-Scores) gebracht.
+`sample_y_train_unscaled.csv` 
 
-**Unscaled Features**
-*(Auszug aus `sample_X_train_unscaled.csv`)*
-| timestamp | close | ema_5 | volume_norm | return_5 | realized_vol_10 | corr_QQQ_NVDA_15 | vwap_norm | NVDA_return_5 | ema_diff | relative_strength |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 2023-07-05 15:18:00 | 365.68 | 365.62 | 0.82 | -0.0004 | 0.00014 | 0.92 | 1.0001 | -0.0012 | 0.45 | 0.0002 |
-| 2023-03-17 18:41:00 | 299.33 | 299.28 | 1.12 | 0.0012 | 0.00085 | 0.65 | 0.9998 | 0.0025 | -0.12 | -0.0005 |
-| 2022-11-18 19:41:00 | 278.09 | 277.94 | 0.45 | 0.0005 | 0.00021 | 0.78 | 1.0000 | 0.0008 | 0.08 | 0.0001 |
-| 2022-08-11 14:47:00 | 321.11 | 321.05 | 0.98 | -0.0001 | 0.00033 | 0.41 | 1.0002 | -0.0003 | 0.22 | -0.0001 |
+| target_5m | target_15m | target_30m |
+|---:|---:|---:|
+|-0.002266931141966434 | -0.003938792859166864 | -0.0029470104845564287 |
+|-0.0016377649325625913 | -0.0009955041746949336 | -0.0012202954399486046 |
+|-0.0009954532002475302 | -0.000726411794775167 | -0.0005111786703973681 |
+|9.100837277038454e-05 | 0.003063948549933233 | 0.0023965538162844936 |
+|0.0013637668676428204 | -0.0030505311513062227 | -0.009079816250358788 |
+|-0.0017200489953349358 | 0.00026061348414172875 | 0.00106851528498091 |
+|-0.0017546424915924046 | -0.0013159818686943035 | -0.002120193010674017 |
+|-0.0013571826280623133 | 0.0016703786191535402 | -0.00027839643652575487 |
 
-**Scaled Features**
-*(Auszug aus `sample_X_train_scaled.csv`)*
-| timestamp | close | ema_5 | volume_norm | return_5 | realized_vol_10 | corr_QQQ_NVDA_15 | vwap_norm | NVDA_return_5 | ema_diff | relative_strength |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 2023-07-05 15:18:00 | 1.16 | 1.16 | -0.18 | -0.23 | -0.98 | 0.76 | 0.35 | -0.31 | 1.01 | 0.25 |
-| 2023-03-17 18:41:00 | -0.48 | -0.48 | 0.11 | 0.69 | 2.15 | -0.25 | -0.66 | 0.64 | -0.27 | -0.62 |
-| 2022-11-18 19:41:00 | -1.01 | -1.02 | -0.52 | 0.29 | -0.72 | 0.23 | 0.00 | 0.21 | 0.18 | 0.12 |
-| 2022-08-11 14:47:00 | -0.21 | -0.21 | -0.02 | -0.06 | -0.49 | -1.15 | 0.67 | -0.08 | 0.49 | -0.12 |
+`sample_X_train_unscaled.csv`
 
-### Target Variable (y)
+| ema_diff | return_5 | volume_norm |
+|---:|---:|---:|
+|-0.08109537 | 0.00017005 | 1.12348178 |
+|-0.10397075 | 0.00118960 | 0.75332398 |
+|-0.85181476 | -0.00077961 | 0.50599606 |
+|0.09926313 | 0.00042489 | 0.73509672 |
+|-0.26607503 | 0.00061048 | 0.12960279 |
+|0.42973253 | -0.00078123 | 0.58049487 |
 
-Das Ziel ist die **30-Minuten-Rendite**. Diese wird **nicht** skaliert.
-
-*(Auszug aus `sample_y_train_unscaled.csv`)*
-| timestamp | target_30m |
-|---|---|
-| 2023-07-05 15:18:00 | -0.0022 |
-| 2023-03-17 18:41:00 | 0.0025 |
-| 2022-11-18 19:41:00 | 0.0018 |
-| 2022-08-11 14:47:00 | -0.0009 |
 
 ---
 
-## 06 Modeling
+## Step 6 – Feature Selection
+**Script**
+
+[06_feature_selection.py](scripts/06_feature_selection/06_feature_selection.py)
+
+| feature | target_5m | target_15m | target_30m |
+|---|---:|---:|---:|
+| **`ema_diff`** | -0.002232 | 0.010529 | 0.008679 |
+| **`return_5`** | -0.017092 | -0.006637 | 0.003839 |
+| **`realized_vol_10`** | -0.001225 | 0.001799 | -0.009868 |
+| **`volume_norm`** | -0.007416 | -0.004843 | -0.005991 |
+| **`volume_acceleration`** | 0.000247 | -0.003885 | 0.000079 |
+| **`bid_ask_spread_proxy`** | -0.004396 | 0.004960 | 0.006046 |
+| **`NVDA_return_5`** | -0.011149 | -0.002574 | 0.009995 |
+| **`AAPL_return_5`** | -0.017119 | -0.006983 | 0.000219 |
+| **`MSFT_return_5`** | -0.005695 | 0.001526 | 0.002963 |
+| **`GOOGL_return_5`** | -0.007035 | -0.000080 | 0.006464 |
+| **`AMZN_return_5`** | -0.003732 | 0.001095 | 0.002323 |
+| **`tech_unanimity`** | -0.003317 | -0.003101 | -0.003684 |
+| **`momentum_spread_5`** | -0.001906 | 0.000633 | -0.005655 |
+| **`max_divergence`** | -0.003344 | 0.000295 | -0.006040 |
+| **`relative_strength`** | -0.001378 | -0.006223 | -0.006923 |
+| **`high_vol_regime`** | 0.005518 | 0.011151 | 0.013137 |
+| **`low_corr_regime`** | 0.005488 | 0.006909 | 0.011169 |
+| **`overextended_up`** | 0.002577 | 0.008200 | -0.002951 |
+| **`overextended_down`** | 0.001600 | -0.012088 | -0.023756 |
+| **`corr_QQQ_NVDA_15`** | -0.008101 | -0.011794 | -0.014829 |
+
+---
+
+## 07 Modeling
+
+### 7.1 Feed Forward Neural Network (Multi‑Horizon MLP)
+
+Das in diesem Projekt verwendete Feed‑Forward‑Modell ist ein Multi‑Horizon MLP, das für die Vorhersage der Richtung (Up/Down) für drei Vorhersagehorizonte trainiert wird: 5m, 15m und 30m. Im Unterschied zur ursprünglichen Vorlage handelt es sich hier um ein Klassifikations‑Setup (Richtung).
+
+#### Feed Forward Skript
+
+[scripts/07_modeling/07_feed_forward.py](scripts/07_modeling/07_feed_forward/07_feed_forward.py)
+
+
+#### Feed Forward Architektur 
+
+- Eingangs‑Dimension: Anzahl der Features in `X_train_scaled.npy`
+- Hidden1: 1024 Neuronen
+- Hidden2: 1024 Neuronen
+- Hidden3: 512 Neuronen
+- Hidden4: 512 Neuronen
+- Hidden5: 256 Neuronen
+- Aktivierung: LeakyReLU
+- BatchNorm nach jeder Linear‑Schicht
+- Dropout: p = 0.1
+- Output: 3 Logits (ein Logit pro Horizont)
+
+#### Visualisierungen
+Die Grafik zeigt den Verlauf von **Train- und Validation-Loss** über die Epochen.  
+Der Loss sinkt zu Beginn leicht, stabilisiert sich aber schnell in der Nähe von **≈ 0,69**.  
+Das entspricht ungefähr dem Loss eines Modells, das konstant eine Wahrscheinlichkeit von 50 % (Münzwurf) vorhersagt.  
+→ **Das Feed-Forward-Netz kann nur sehr begrenzt Struktur im Datensatz ausnutzen.**
+
+![Train vs Val Loss](images/modeling/feed_forward/06_multihorizon_mlp_loss.png)
+
+Hier ist die **Test-Accuracy** getrennt nach Zeithorizont dargestellt (5m, 15m, 30m).  
+Alle drei Horizonte liegen nur **knapp über 50 %**, also nur minimal besser als zufälliges Raten.
+
+**Schlussfolgerung:**
+
+- Das Feed-Forward-NN liefert zwar eine leichte Verbesserung gegenüber reiner Zufallsentscheidung,
+- aber die **Vorhersagequalität bleibt insgesamt schwach**.  
+  Die kurzfristige Trendrichtung im QQQ scheint mit den gewählten Features/Labels **nur sehr schwer vorherzusagen** zu sein.
+
+
+![Test Accuracy per Horizon](images/modeling/feed_forward/06_multihorizon_mlp_test_accuracy.png)
+
+In diesem Plot werden für die ersten Test-Samples die **tatsächliche Richtung (0/1)** als Step-Plot und die  
+**vom Modell geschätzte Aufwärts-Wahrscheinlichkeit** dargestellt. Zusätzlich ist unten rechts nochmals der  
+Validation-Loss zu sehen.
+
+- Die blaue Linie (Actual 0/1) springt stark zwischen 0 und 1 → typisch für binäre Zeitreihen.
+- Die orange Kurve (Predicted Probability) liegt meist nahe bei **0,5** und folgt den Sprüngen nur schwach.
+- Die eingeblendeten Test-Accuracies pro Horizont bestätigen das Bild: **nur wenig besser als Zufall**.
+
+![Actual vs Predicted (erste Test‑Samples)](images/modeling/feed_forward/06_multihorizon_mlp_actual_vs_predicted_test.png)
+
+Das Modell dient als **Baseline**. Es zeigt, dass mit einem reinen Feed-Forward-Ansatz und den gewählten Features  
+nur ein sehr schwaches Signal für die kurzfristige Trendrichtung erkennbar ist.  
+
+### 6.2 LSTM-Modell (Sequenzmodell)
+
+[scripts/07_modeling/07_lstm.py](scripts/07_modeling/07_feed_forward/07_feed_forward.py)
+
+Als zweites Modell wurde ein **LSTM** eingesetzt, das statt einzelner Zeitpunkte ganze
+Sequenzen der letzten 20 Minuten verarbeitet.  
+Eingaben sind wieder die skalierten Features, als Zielvariable dienen die
+Richtungen der nächsten 5/15/30 Minuten (`target_5m`, `target_15m`, `target_30m`, 0/1).
+
+#### Loss-Verlauf
+Der Trainings-Loss sinkt klar ab, während der Validation-Loss bereits nach wenigen
+Epochen deutlich ansteigt.  
+Das ist ein typisches Zeichen für **Overfitting**:  
+Das LSTM passt sich stark an die Trainingssequenzen an, generalisiert aber schlecht
+auf die Validierungsdaten.
+
+![LSTM: Loss-Kurven](images/modeling/lstm/07_lstm_loss.png)
+
+#### Test-Accuracy pro Horizont
+
+Auf dem Test-Set liegt die Accuracy für alle drei Horizonte nur bei **ca. 50–52 %** und
+damit praktisch auf dem Niveau des Feed-Forward-Netzes sowie eines Zufallsmodells.
+
+![LSTM: Test Accuracy pro Horizont](images/modeling/lstm/07_lstm_test_accuracy.png)
+
+
+#### Beispiel: Actual vs. Predicted
+
+Die blauen Linien zeigen die tatsächliche Richtung (0/1), die orange Kurve die vom LSTM
+geschätzte Aufwärts-Wahrscheinlichkeit.  
+Die Vorhersagen liegen überwiegend um **0,5** und folgen den Richtungswechseln nur sehr
+schwach – das Modell ist also meist unsicher.
+
+![LSTM: Actual vs Predicted (Test)](images/modeling/lstm/07_lstm_actual_vs_predicted_test.png)
+
+
+**Fazit LSTM:**  
+Trotz expliziter Modellierung der Zeitabhängigkeiten kann das LSTM die kurzfristige
+Trendrichtung **nicht zuverlässig** vorhersagen und bietet keinen klaren Vorteil
+gegenüber dem Feed-Forward-Baseline-Modell.  
+Damit bestätigt sich, dass im betrachteten Datensatz nur ein sehr schwaches
+handelbares Signal für die nächsten 5–30 Minuten vorhanden ist.
+

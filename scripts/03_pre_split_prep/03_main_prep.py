@@ -100,6 +100,17 @@ def main():
                 "realized_vol_10",
                 "volume_norm",
                 "vwap_norm",
+                "volume_acceleration",
+                "volume_spike",
+                "volume_return_alignment",
+                "bid_ask_spread_proxy",
+                "efficiency_ratio",
+                "overextended_up",
+                "overextended_down",
+                "rsi_proxy",
+                "high_vol_regime",
+                "minute_of_day",
+                "is_15_30_16_00",
             ]
             df_eng = df_eng[cols]
         else:

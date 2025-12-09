@@ -1,63 +1,83 @@
-import pandas as pd
+# scripts/05_post_split_prep/05_plot_post_split.py
+
+"""
+Step 5 – Post-Split Sample Tables
+
+Erzeugt kleine Beispiel-Tabellen für X und y nach dem Split:
+
+- sample_X_train_unscaled.csv
+- sample_X_val_unscaled.csv
+- sample_X_test_unscaled.csv
+- sample_y_train_unscaled.csv
+- sample_y_val_unscaled.csv
+- sample_y_test_unscaled.csv
+
+- sample_X_train_scaled.csv
+- sample_X_val_scaled.csv
+- sample_X_test_scaled.csv
+
+Die Funktion wird von 05_main_post_split.py getrennt für
+UNSCALED und SCALED aufgerufen:
+
+    save_sample_tables(train_df, val_df, test_df,
+                       feature_cols, target_cols,
+                       suffix="unscaled")
+
+    save_sample_tables(train_df_scaled, val_df_scaled, test_df_scaled,
+                       feature_cols, target_cols,
+                       suffix="scaled")
+"""
+
 from pathlib import Path
+import pandas as pd
 
-def save_sample_tables(train_df, val_df, test_df, feature_cols, main_target, suffix="post_split"):
+
+def save_sample_tables(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    feature_cols,
+    target_cols,
+    suffix: str = "unscaled",
+    sample_size: int = 5000,
+) -> None:
     """
-    Saves 5 random samples from each split to CSV, SEPARATING X and y.
-    suffix: String to append to filename (e.g. 'scaled' or 'unscaled')
+    Erzeugt kleine Samples für Train/Val/Test.
+
+    - Für beide Suffixe werden X-Samples geschrieben.
+    - y-Samples werden NUR geschrieben, wenn die Target-Spalten
+      in den übergebenen DataFrames enthalten sind (also typischerweise
+      nur beim 'unscaled'-Call).
     """
-    PROJECT_ROOT = Path(__file__).resolve().parents[2]
-    output_dir = PROJECT_ROOT / "data" / "processed"
-    
-    # Debug: Print received target
-    print(f"   [DEBUG] Splitting samples for X/y. Target: {main_target}")
 
-    # Helper to prepare sample
-    def prepare_and_save(df, name):
-        if len(df) == 0:
-            return
-            
-        sample = df.sample(min(15, len(df)), random_state=42)
-        
-        # Ensure timestamp is available if possible (for X)
-        if "timestamp" not in sample.columns:
-            sample = sample.reset_index()
-            if "timestamp" not in sample.columns and "index" in sample.columns:
-                sample = sample.rename(columns={"index": "timestamp"})
+    project_root = Path(__file__).resolve().parents[2]
+    processed_dir = project_root / "data" / "processed"
+    processed_dir.mkdir(parents=True, exist_ok=True)
 
-        # --- Save X (Features) ---
-        # Features + Timestamp (if present)
-        x_cols = feature_cols[:]
-        if "timestamp" in sample.columns:
-            x_cols = ["timestamp"] + x_cols
-            
-        final_x_cols = [c for c in x_cols if c in sample.columns]
-        
-        filename_X = f"sample_X_{name}_{suffix}.csv"
-        sample[final_x_cols].to_csv(output_dir / filename_X, index=False)
-        
-        # --- Save y (Target) ---
-        # Target + Timestamp (for reference)
-        if isinstance(main_target, list):
-            y_cols = main_target[:]
-        else:
-            y_cols = [main_target]
-            
-        if "timestamp" in sample.columns:
-            y_cols = ["timestamp"] + y_cols
-            
-        final_y_cols = [c for c in y_cols if c in sample.columns]
+    splits = {
+        "train": train_df,
+        "val": val_df,
+        "test": test_df,
+    }
 
-        if "scaled" in suffix:
-            # Skip saving y for scaled step, as requested (it's same as unscaled)
-            return
+    for split_name, df in splits.items():
+        if df is None or df.empty:
+            continue
 
-        if not final_y_cols:
-             print(f"   [WARNING] Target {main_target} not found in {name} sample!")
-        else:
-            filename_y = f"sample_y_{name}_{suffix}.csv"
-            sample[final_y_cols].to_csv(output_dir / filename_y, index=False)
+        n = min(sample_size, len(df))
+        sample = df.sample(n=n, random_state=42).copy()
 
-    prepare_and_save(train_df, "train")
-    prepare_and_save(val_df, "val")
-    prepare_and_save(test_df, "test")
+        # ----------------- X-Samples -----------------
+        x_cols = [c for c in feature_cols if c in sample.columns]
+        x_sample = sample[x_cols]
+        x_out = processed_dir / f"sample_X_{split_name}_{suffix}.csv"
+        x_sample.to_csv(x_out, index=False)
+
+        # ----------------- y-Samples (nur wenn Targets vorhanden) ----------
+        y_cols = [c for c in target_cols if c in sample.columns]
+        if y_cols:
+            y_sample = sample[y_cols]
+            y_out = processed_dir / f"sample_y_{split_name}_{suffix}.csv"
+            y_sample.to_csv(y_out, index=False)
+
+    print(f"✅ Sample tables ({suffix}) gespeichert in {processed_dir}")

@@ -1,161 +1,3 @@
-```markdown
-# QQQ Trend Prediction mit Top Tech-Aktien
-
-### Problem Definition:
-### Ziel
-
-Vorhersage der Preisrichtung über die nächsten t=[5, 15, 30] Minuten für den Invesco QQQ ETF (QQQ) unter Verwendung der Top 5 Tech-Aktien als Einflussfaktoren.
-
-Für jede Minute vom 2022-01-03 bis zum 2025-11-21 berechnen wir die erwartete Preisveränderung über das zukünftige Fenster t, während wir aktuelle technische Features von sowohl QQQ als auch Top-Tech-Aktien als Input-Predictors verwenden.
-
-### Input Features
-
-*QQQ Technische Features:*
-- Normalisierte VWAP und Volumen
-- Normalisierte exponentielle gleitende Durchschnitte (EMA) über [5, 10, 20] Minuten
-- EMA Differenz (EMA5 - EMA20)
-- Kurz- und mittelfristige Returns (5, 15, 30 Minuten)
-- Realisierte Volatilität (10 Minuten)
-
-*Top Tech-Aktien Features (NVDA, AAPL, MSFT, GOOGL, AMZN)*:
-- Normalisierte VWAP und Volumen für jede Aktie
-- EMA über [5, 10, 20] Minuten für jede Aktie
-- Kurz- und mittelfristige Returns (5, 15, 30 Minuten) für jede Aktie
-- EMA slopes für jede Aktie
-
-*Multi-Asset Relationship Features*:
-
-- Korrelation zwischen QQQ und Tech-Aktien (15 Minuten)
-- Relative Stärke (QQQ Performance vs Tech-Durchschnitt)
-- Tech Momentum Leader (führende Tech-Aktie identifizieren)
-
----
-## 01 Data Acquisition
-Bezieht Rohmarktdaten für QQQ und Top Tech-Aktien von 2022-01-03 bis 2025-11-21, verwendet Alpaca Markets API als exklusive Datenquelle. Die Daten sind gefiltert auf reguläre Handelszeiten.
-
-**Script**
-
-[scripts/01_data_acquisition/01_data_acquisition.py](scripts/01_data_acquisition/01_data_acquisition.py)
-
-Zieht **1-minute** adjustierte bars von **2022-01-03 → 2025-11-21** und schreibt `symbol.parquet` Dateien nach `../trading-board-project/data/raw/QQQ_1m`
-
----
-
-## 03 Pre Split Preperation
-
-**Main Script**
-
-[main.py](scripts/03_pre_split_prep/03_main_prep.py)
-
-**Feature Engineering Script**
-
-[scripts/03_pre_split_prep/03_features.py](scripts/03_pre_split_prep/03_features.py)
-
-**Target Computation Script**
-
-[scripts/03_pre_split_prep/03_targets.py](scripts/03_pre_split_prep/03_targets.py)
-
-**Plotting Script**
-
-[scripts/03_pre_split_prep/03_plot_features.py](scripts/03_pre_split_prep/03_plot_features.py)
-
-**Divergenz vs. zukünftiger QQQ-Return (5 Min)** — Beispielplots und Statistiken.
-
----
-
-## 4 - Data-Split 
-**Script**
-
-[split_data.py](scripts/04_split_data/04_split_data.py)
-
----
-
-## Step 5 - Post-Split Preparation
-
-**Script**
-
-[05_main_post_split.py](scripts/05_post_split_prep/05_main_post_split.py)
-
-Bereitet die gesplitteten Daten für das Modelltraining vor:
-1.  **Drop NaNs**: Entfernt Zeilen mit fehlenden Werten (z.B. durch Rolling Windows).
-2.  **Separate X/y**: Trennt Features und Zielvariable (`target_30m`).
-3.  **Scale Features**: Wendet `StandardScaler` auf Features an (Fit auf Train, Transform auf alle).
-4.  **Save Numpy**: Speichert optimierte `.npy` Arrays für das Training.
-
-### Feature Scaling Vergleich (kompakt)
-
-Kurzer, kompakter Auszug aus den bereitgestellten CSVs (wenige Spalten). Vollständige Dateien: `data/processed/`.
-
-**`sample_X_train_unscaled.csv` — kompakter Auszug (4 Spalten, 6 Zeilen)**
-
-| ema_diff | return_5 | volume_norm | NVDA_return_5 |
-|---:|---:|---:|---:|
-|-0.08109537 | 0.00017005 | 1.12348178 | 0.00095900 |
-|-0.10397075 | 0.00118960 | 0.75332398 | 0.00073394 |
-|-0.85181476 | -0.00077961 | 0.50599606 | 0.00518242 |
-|0.09926313 | 0.00042489 | 0.73509672 | 0.00128824 |
-|-0.26607503 | 0.00061048 | 0.12960279 | 0.00397953 |
-|0.42973253 | -0.00078123 | 0.58049487 | 0.00064089 |
-
-*Vollständige Datei:* `data/processed/sample_X_train_unscaled.csv`
-
-**`sample_X_train_scaled.csv` — kompakter Auszug (4 Spalten, 6 Zeilen)**
-
-| ema_diff | return_5 | volume_norm | NVDA_return_5 |
-|---:|---:|---:|---:|
-|-0.18675001 | 0.07942148 | 0.10852180 | 0.22356107 |
-|-0.23891126 | 0.56327787 | -0.25347719 | 0.17013357 |
-|-1.94417202 | -0.37126816 | -0.49535364 | 1.22617831 |
-|0.22450992 | 0.20036217 | -0.27130269 | 0.30172141 |
-|-0.60854725 | 0.28844060 | -0.86345066 | 0.94061920 |
-|0.97805812 | -0.37203596 | -0.42249689 | 0.14804250 |
-
-*Vollständige Datei:* `data/processed/sample_X_train_scaled.csv`
-
-**`sample_y_train_unscaled.csv` — kompakter Auszug (2 Spalten, 6 Zeilen)**
-
-| target_5m | target_30m |
-|---:|---:|
-|-0.00226693 | -0.00294701 |
-|-0.00163776 | -0.00122030 |
-|-0.00099545 | -0.00051118 |
-|0.00009101 | 0.00239655 |
-|0.00136377 | -0.00907982 |
-|-0.00172005 | 0.00106852 |
-
-*Vollständige Datei:* `data/processed/sample_y_train_unscaled.csv`
-
-**`sample_y_train_scaled.csv` — kompakter Auszug (2 Spalten, 6 Zeilen)**
-
-| target_5m | target_30m |
-|---:|---:|
-|-0.00226693 | -0.00294701 |
-|-0.00163776 | -0.00122030 |
-|-0.00099545 | -0.00051118 |
-|0.00009101 | 0.00239655 |
-|0.00136377 | -0.00907982 |
-|-0.00172005 | 0.00106852 |
-
-*Vollständige Datei:* `data/processed/sample_y_train_scaled.csv`
-
-Hinweis: Aus Platz- und Lesbarkeitsgründen sind hier nur sehr kompakte Ausschnitte (erste 6 Zeilen) eingefügt. Wenn du noch schmaler willst, sage mir bitte genau welche Spalten (z. B. nur `ema_diff` + `return_5`).
-
----
-
-## Step 6 – Feature Selection
-**Script**
-
-[06_feature_selection.py](scripts/06_feature_selection/06_feature_selection.py)
-
-| feature | target_5m | target_15m | target_30m |
-|---|---:|---:|---:|
-| **`ema_diff`** | -0.002232 | 0.010529 | 0.008679 |
-| **`return_5`** | -0.017092 | -0.006637 | 0.003839 |
-| **`realized_vol_10`** | -0.001225 | 0.001799 | -0.009868 |
-| **`volume_norm`** | -0.007416 | -0.004843 | -0.005991 |
-| **`NVDA_return_5`** | -0.011149 | -0.002574 | 0.009995 |
-
-```
 # QQQ Trend Prediction mit Top Tech-Aktien
 
 ### Problem Definition:
@@ -390,6 +232,30 @@ Bereitet die gesplitteten Daten für das Modelltraining vor:
 |0.09926313 | 0.00042489 | 0.73509672 |
 |-0.26607503 | 0.00061048 | 0.12960279 |
 |0.42973253 | -0.00078123 | 0.58049487 |
+
+`sample_y_train_scaled.csv`
+
+| target_5m | target_15m | target_30m |
+|---:|---:|---:|
+|-0.002266931141966434 | -0.003938792859166864 | -0.0029470104845564287 |
+|-0.0016377649325625913 | -0.0009955041746949336 | -0.0012202954399486046 |
+|-0.0009954532002475302 | -0.000726411794775167 | -0.0005111786703973681 |
+|9.100837277038454e-05 | 0.003063948549933233 | 0.0023965538162844936 |
+|0.0013637668676428204 | -0.0030505311513062227 | -0.009079816250358788 |
+|-0.0017200489953349358 | 0.00026061348414172875 | 0.00106851528498091 |
+|-0.0017546424915924046 | -0.0013159818686943035 | -0.002120193010674017 |
+|-0.0013571826280623133 | 0.0016703786191535402 | -0.00027839643652575487 |
+
+`sample_X_train_scaled.csv`
+
+| ema_diff | return_5 | volume_norm |
+|---:|---:|---:|
+|-0.18675001 | 0.07942148 | 0.10852180 |
+|-0.23891126 | 0.56327787 | -0.25347719 |
+|-1.94417202 | -0.37126816 | -0.49535364 |
+|0.22450992 | 0.20036217 | -0.27130269 |
+|-0.60854725 | 0.28844060 | -0.86345066 |
+|0.97805812 | -0.37203596 | -0.42249689 |
 
 
 ---

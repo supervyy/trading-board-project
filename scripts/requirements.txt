@@ -11,3 +11,4 @@ scikit-learn==1.7.2
 pyarrow==22.0.0
 torch
 joblib
+yfinance

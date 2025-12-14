@@ -344,7 +344,7 @@ Validation-Loss zu sehen.
 
 ![Actual vs Predicted (erste Test‑Samples)](images/modeling/feed_forward/06_multihorizon_mlp_actual_vs_predicted_test.png)
 
-Das Modell dient als **Baseline**. Es zeigt, dass mit einem reinen Feed-Forward-Ansatz und den gewählten Features  
+Das Modell dient als **Baseline** im Vergleich zum LSTM. Es zeigt, dass mit einem reinen Feed-Forward-Ansatz und den gewählten Features  
 nur ein sehr schwaches Signal für die kurzfristige Trendrichtung erkennbar ist.  
 
 ### 6.2 LSTM-Modell (Sequenzmodell)
@@ -389,4 +389,24 @@ Trendrichtung **nicht zuverlässig** vorhersagen und bietet keinen klaren Vortei
 gegenüber dem Feed-Forward-Baseline-Modell.  
 Damit bestätigt sich, dass im betrachteten Datensatz nur ein sehr schwaches
 handelbares Signal für die nächsten 5–30 Minuten vorhanden ist.
+
+### Baselines (Market / Dummy / Linear)
+
+Um zu prüfen, ob unsere Modelle wirklich Mehrwert liefern, vergleichen wir gegen einfache Baselines:
+
+- **Market Baseline (Always UP):** sagt immer „UP“ voraus (entspricht „immer long“ für Direction).
+- **Dummy Baseline (most_frequent):** sagt immer die häufigste Klasse voraus (Prof-„Dummy“).
+- **Linear Baseline (LogReg):** logist. Regression als lineares Klassifikationsmodell.
+
+**Script:** `scripts/07_modeling/07_baselines_direction.py`
+
+**Ergebnisse (Test, Accuracy):**
+
+| Modell | 5m | 15m | 30m | Overall |
+|---|---:|---:|---:|---:|
+| Market: Always UP | 0.5098 | 0.5194 | 0.5159 | 0.5150 |
+| Dummy: most_frequent | 0.5098 | 0.5194 | 0.5159 | 0.5150 |
+| LogReg (linear) | 0.5111 | 0.5217 | 0.5177 | 0.5168 |
+
+![Baselines vs Market](images/modeling/baselines/07_baselines_direction_accuracy.png)
 

@@ -12,7 +12,7 @@ import os
 # -------------------------------------------------
 # Pfade / Setup
 # -------------------------------------------------
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_PATH    = PROJECT_ROOT / "data" / "processed"
 MODELS_PATH  = PROJECT_ROOT / "models" / "feed_forward"
 IMAGES_PATH  = PROJECT_ROOT / "images" / "modeling" / "feed_forward"
@@ -32,9 +32,10 @@ TARGET_COLS = ["target_5m", "target_15m", "target_30m"]
 # -------------------------------------------------
 def load_data():
     print(f"📂 Loading X matrices from {DATA_PATH} ...")
-    X_train = np.load(DATA_PATH / "X_train_scaled.npy")
-    X_val   = np.load(DATA_PATH / "X_val_scaled.npy")
-    X_test  = np.load(DATA_PATH / "X_test_scaled.npy")
+    X_train = np.nan_to_num(np.load(DATA_PATH / "X_train_scaled.npy"))
+    X_val   = np.nan_to_num(np.load(DATA_PATH / "X_val_scaled.npy"))
+    X_test  = np.nan_to_num(np.load(DATA_PATH / "X_test_scaled.npy"))
+
 
     print("📂 Loading parquet splits for targets ...")
     train_df = pd.read_parquet(DATA_PATH / "train.parquet")

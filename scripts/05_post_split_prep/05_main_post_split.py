@@ -24,6 +24,13 @@ def main():
 
     print("3. Fitting scaler on Train...")
     scaler = scale_data.fit_scaler(train_df, feature_cols)
+    
+    # Save scaler for deployment
+    import joblib
+    MODELS_PATH = PROJECT_ROOT / "models"
+    MODELS_PATH.mkdir(parents=True, exist_ok=True)
+    joblib.dump(scaler, MODELS_PATH / "scaler.pkl")
+    print(f"   💾 Scaler saved to {MODELS_PATH / 'scaler.pkl'}")
 
     print("4. Applying scaler to Train, Val, Test...")
     train_scaled = scale_data.apply_scaler(scaler, train_df, feature_cols)

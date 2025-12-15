@@ -439,13 +439,15 @@ def check_signals(alpaca_client, model, scaler):
             # Check duration
             # Get latest filled BUY order for this symbol
             # For simplicity in this script, getting orders via client:
-            from alpaca.trading.requests import GetOrdersRequest, GetOrdersResponse
+            from alpaca.trading.requests import GetOrdersRequest
             
-            req_orders = GetOrdersRequest(status='filled', side=OrderSide.BUY, symbols=[SYMBOL_TRADE], limit=1)
+            req_orders = GetOrdersRequest(status='closed', side=OrderSide.BUY, symbols=[SYMBOL_TRADE], limit=5)
             orders = alpaca_client.get_orders(req_orders)
             
-            if orders:
-                last_buy = orders[0]
+            # Find the most recent filled order (skip cancelled/expired)
+            last_buy = next((o for o in orders if o.filled_at is not None), None)
+            
+            if last_buy:
                 filled_at = last_buy.filled_at # datetime
                 
                 # Check timezone awareness to avoid cryptic errors

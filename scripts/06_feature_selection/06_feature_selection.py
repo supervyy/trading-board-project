@@ -116,3 +116,22 @@ out_file = reports_path / "feature_correlations_all_targets.csv"
 summary_df.to_csv(out_file)
 print(f"\n💾 Saved correlation summary to: {out_file}")
 
+# -----------------------------
+# Export Feature List for Deployment (19 features, ordered like training)
+# -----------------------------
+import numpy as np
+
+# Nimm nur die Features aus ESSENTIAL_FEATURES, die wirklich im DF sind
+feature_cols = [f for f in ESSENTIAL_FEATURES if f in df.columns]
+
+# Optionaler Safety-Check gegen X_train_scaled.npy (sollte 19 sein)
+x_dim = np.load(PROCESSED_PATH / "X_train_scaled.npy").shape[1]
+if len(feature_cols) != x_dim:
+    raise ValueError(f"Feature count mismatch: ESSENTIAL_FEATURES={len(feature_cols)} vs X_train_scaled has {x_dim}")
+
+out_path = PROJECT_ROOT / "models" / "feed_forward" / "features_selected.txt"
+out_path.parent.mkdir(parents=True, exist_ok=True)
+out_path.write_text("\n".join(feature_cols), encoding="utf-8")
+
+print(f"✅ Saved features_selected.txt ({len(feature_cols)} features) -> {out_path}")
+

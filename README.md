@@ -298,7 +298,7 @@ Das in diesem Projekt verwendete Feed‑Forward‑Modell ist ein Multi‑Horizon
 
 #### Feed Forward Skript
 
-[scripts/07_modeling/07_feed_forward.py](scripts/07_modeling/07_feed_forward/07_feed_forward.py)
+[scripts/07_modeling/07_feed_forward.py](scripts/07_modeling/07_feed_forward.py)
 
 
 #### Feed Forward Architektur 
@@ -344,12 +344,12 @@ Validation-Loss zu sehen.
 
 ![Actual vs Predicted (erste Test‑Samples)](images/modeling/feed_forward/06_multihorizon_mlp_actual_vs_predicted_test.png)
 
-Das Modell dient als **Baseline** im Vergleich zum LSTM. Es zeigt, dass mit einem reinen Feed-Forward-Ansatz und den gewählten Features  
+Das Modell zeigt, dass mit einem reinen Feed-Forward-Ansatz und den gewählten Features  
 nur ein sehr schwaches Signal für die kurzfristige Trendrichtung erkennbar ist.  
 
 ### 6.2 LSTM-Modell (Sequenzmodell)
 
-[scripts/07_modeling/07_lstm.py](scripts/07_modeling/07_feed_forward/07_feed_forward.py)
+[scripts/07_modeling/07_lstm.py](scripts/07_modeling/07_lstm.py)
 
 Als zweites Modell wurde ein **LSTM** eingesetzt, das statt einzelner Zeitpunkte ganze
 Sequenzen der letzten 20 Minuten verarbeitet.  
@@ -390,23 +390,66 @@ gegenüber dem Feed-Forward-Baseline-Modell.
 Damit bestätigt sich, dass im betrachteten Datensatz nur ein sehr schwaches
 handelbares Signal für die nächsten 5–30 Minuten vorhanden ist.
 
-### Baselines (Market / Dummy / Linear)
+**Baseline**  
 
-Um zu prüfen, ob unsere Modelle wirklich Mehrwert liefern, vergleichen wir gegen einfache Baselines:
+Um zu prüfen, ob unsere Modelle wirklich Mehrwert liefern, nutzen wir als Baseline einen **DummyClassifier (most_frequent)**, der immer die häufigste Klasse (Up/Down)
+vorhersagt.
 
-- **Market Baseline (Always UP):** sagt immer „UP“ voraus (entspricht „immer long“ für Direction).
-- **Dummy Baseline (most_frequent):** sagt immer die häufigste Klasse voraus (Prof-„Dummy“).
-- **Linear Baseline (LogReg):** logist. Regression als lineares Klassifikationsmodell.
-
-**Script:** `scripts/07_modeling/07_baselines_direction.py`
+[scripts/07_modeling/07_baselines_direction.py](scripts/07_modeling/07_baselines_direction.py)
 
 **Ergebnisse (Test, Accuracy):**
 
-| Modell | 5m | 15m | 30m | Overall |
-|---|---:|---:|---:|---:|
-| Market: Always UP | 0.5098 | 0.5194 | 0.5159 | 0.5150 |
-| Dummy: most_frequent | 0.5098 | 0.5194 | 0.5159 | 0.5150 |
-| LogReg (linear) | 0.5111 | 0.5217 | 0.5177 | 0.5168 |
+![Baselines vs Market](images/modeling/comparison\07_dummy_vs_models_test.png)
+In unserem Test-Vergleich ist das **FeedForward-Modell** insgesamt am besten (höchste Overall-Accuracy) und wird daher als bevorzugtes Modell für das weitere Projekt genutzt.
 
-![Baselines vs Market](images/modeling/baselines/07_baselines_direction_accuracy.png)
+---
 
+## 08 Deployment
+
+**Script**
+
+[scripts/08_deployment/deploy_trading.py](scripts/08_deployment/deploy_trading.py)
+
+---
+
+## 09 Backtesting
+### Entry Points
+
+- **Long-only Strategy**
+- **Entry-Signal:** `Prob(UP_15m) >= threshold` (Default: `0.55`).
+- **Keine Overlaps:** Nach einem Entry springt der Index um `hold_bars` weiter (es gibt nie zwei offene Trades gleichzeitig).
+- **Positionsgröße:** fix über `qty` (Default: `qty=1`).
+
+### Exit Points
+
+- **MaxHold:** Position wird nach `hold_bars` Bars geschlossen (Default: `15` Bars = 15 Minuten).
+- In der aktuellen Version gibt es **kein** Stop‑Loss/Take‑Profit und **kein** SignalFlip → deshalb ist der Exit‑Grund in der Trade‑Tabelle immer `MaxHold`.
+
+### Backtesting Skript (Feed Forward)
+
+[scripts/09_backtesting/backtest.py](scripts/09_backtesting/ff_backtest.py)
+
+### Backtesting Plot (Feed Forward)
+
+![FF Backtest Direction](images/backtesting/ff_backtest_15m_prob_vs_true.png)
+
+
+### Backtesting Skript (Feed Forward - Trade)
+
+[scripts/09_backtesting/backtest_trade.py](scripts/09_backtesting/ff_trade_backtest.py)
+
+### Backtesting Plot (Feed Forward - Trade)
+
+![FF Backtest Equity Curve](images/backtesting/ff_trade_backtest_equity.png)
+
+![image.png](images/image.png)
+
+**RESULTS (Test-Set)**
+- Gesamtergebnis (Testzeitraum):
+- Total Trades: 1155
+- Final Equity: 100,062.31 (Start: 100,000.00)
+- Total Return: 0.06%
+- Win Rate: 52.03%
+- Avg Return pro Trade: 0.0120%
+- Median Return pro Trade: 0.0101%
+- Avg PnL pro Trade: 0.05

@@ -347,7 +347,7 @@ Validation-Loss zu sehen.
 Das Modell zeigt, dass mit einem reinen Feed-Forward-Ansatz und den gewählten Features  
 nur ein sehr schwaches Signal für die kurzfristige Trendrichtung erkennbar ist.  
 
-### 6.2 LSTM-Modell (Sequenzmodell)
+### 7.2 LSTM-Modell (Sequenzmodell)
 
 [scripts/07_modeling/07_lstm.py](scripts/07_modeling/07_lstm.py)
 

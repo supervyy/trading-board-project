@@ -2,7 +2,7 @@
 Feature Selection Helper for QQQ + Top-Tech Projekt
 
 - Lädt das bereits gesplittete TRAIN-Set (train.parquet) aus data/processed
-- Nutzt unsere manuell ausgewählten ESSENTIAL_FEATURES
+- Nutzt unsere manuell ausgewählten ESSENTIAL_FEATURES (19 Features, matching Training/Deployment)
 - Berechnet die Pearson-Korrelationen dieser Features mit ALLEN Targets:
     target_5m, target_15m, target_30m
 - Gibt für jedes Target die sortierten Korrelationen aus
@@ -10,7 +10,7 @@ Feature Selection Helper for QQQ + Top-Tech Projekt
 
 Benutzung:
 - Vom Projekt-Root aus ausführen, z.B.:
-    python scripts/05_post_split_prep/05_feature_selection_corr.py
+    python scripts/06_feature_selection/06_feature_selection.py
 """
 
 import pandas as pd
@@ -27,36 +27,23 @@ TARGET_COLS = ["target_5m", "target_15m", "target_30m"]
 # -------------------------------------------------
 # Unsere ausgewählten Features (dein finales Set)
 # -------------------------------------------------
+# Must match deploy_trading.py and 05_scale_data.py
 ESSENTIAL_FEATURES = [
-    # 1) QQQ Core (Trend, Momentum, Volumen/Volatilität, Microstructure)
-    "ema_diff",              # Trend (kurz vs. mittel)
-    "return_5",              # Kurzfrist-Momentum QQQ
-    "realized_vol_10",       # lokale Volatilität
-    "volume_norm",           # Volumen relativ zur Vergangenheit
-    "volume_acceleration",   # Änderung Volumenintensität
-    "bid_ask_spread_proxy",  # Liquiditäts-/Stress-Proxy
+    # 1. Core QQQ
+    "ema_diff", "return_5", "realized_vol_10", "volume_norm", "volume_acceleration",
+    
+    # 2. NVDA Specifics
+    "NVDA_return_5", "NVDA_volume_norm", "divergence_NVDA_QQQ_5", 
+    "corr_QQQ_NVDA_15",
 
-    # 2) Synchronous Tech-Momentum (alle Top-Techs gleichberechtigt)
-    "NVDA_return_5",
-    "AAPL_return_5",
-    "MSFT_return_5",
-    "GOOGL_return_5",
-    "AMZN_return_5",
+    # 3. Cross Asset / Tech Breadth
+    "relative_strength", "momentum_spread_5", "tech_unanimity", "max_divergence",
 
-    # 3) Cross-Asset / Tech-Breadth
-    "tech_unanimity",        # Anteil Techs, die wie QQQ laufen
-    "momentum_spread_5",     # Streuung der Tech-Returns
-    "max_divergence",        # stärkste Abweichung einer Tech-Aktie von QQQ
-    "relative_strength",     # QQQ relativ zu Tech-Sektor
-
-    # 4) Regime-Features
-    "high_vol_regime",       # Volatilitäts-Regime
-    "low_corr_regime",       # Korrelation-Regime
-    "overextended_up",       # überdehnt nach oben (Trend + Mean-Reversion)
-    "overextended_down",     # überdehnt nach unten
-
-    # 5) Korrelation (NVDA als eine von mehreren Techs)
-    "corr_QQQ_NVDA_15",      # Kopplung QQQ–NVDA als Regime-Info
+    # 4. Regime / Context
+    "high_vol_regime", "low_corr_regime", "overextended_up", "overextended_down",
+    
+    # 5. Microstructure / Time
+    "bid_ask_spread_proxy", "is_15_30_16_00"
 ]
 
 # -------------------------------------------------
@@ -125,13 +112,17 @@ import numpy as np
 feature_cols = [f for f in ESSENTIAL_FEATURES if f in df.columns]
 
 # Optionaler Safety-Check gegen X_train_scaled.npy (sollte 19 sein)
-x_dim = np.load(PROCESSED_PATH / "X_train_scaled.npy").shape[1]
-if len(feature_cols) != x_dim:
-    raise ValueError(f"Feature count mismatch: ESSENTIAL_FEATURES={len(feature_cols)} vs X_train_scaled has {x_dim}")
+x_path = PROCESSED_PATH / "X_train_scaled.npy"
+if x_path.exists():
+    x_dim = np.load(x_path).shape[1]
+    if len(feature_cols) != x_dim:
+        raise ValueError(f"Feature count mismatch: ESSENTIAL_FEATURES={len(feature_cols)} vs X_train_scaled has {x_dim}\n"
+                         "Update ESSENTIAL_FEATURES in this script to match data generation pipeline.")
+else:
+    print("⚠️ X_train_scaled.npy not found, skipping dimension check.")
 
 out_path = PROJECT_ROOT / "models" / "feed_forward" / "features_selected.txt"
 out_path.parent.mkdir(parents=True, exist_ok=True)
 out_path.write_text("\n".join(feature_cols), encoding="utf-8")
 
 print(f"✅ Saved features_selected.txt ({len(feature_cols)} features) -> {out_path}")
-

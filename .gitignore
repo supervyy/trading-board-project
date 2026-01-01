@@ -5,3 +5,4 @@ data/processed/test.parquet
 __pycache__/
 *.pyc
 *.pyo
+conf/keys.yaml

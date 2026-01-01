@@ -1,298 +1,382 @@
 """
-FF Trade Backtest (Direction) – Simple Strategy Simulation
-==========================================================
+FF Trade Backtest (Risk & PnL) – Realistic Simulation
+=====================================================
 
-Trading-Regel (Deployment-like):
-- Nutzt Prob(UP_15m)
-- Wenn Prob >= threshold => Enter LONG
-- Halten hold_bars (default 15 Minuten)
-- Keine Overlaps: nach Entry springt der Index um hold_bars
+Features:
+- Intrabar Stop-Loss / Take-Profit using High/Low (from raw data).
+- Validates strategies with Fees and Slippage.
+- Multiple Positions support (Scale-in).
+- No Lookahead bias.
 
-PnL:
-- Nutzt target_15m (Return) aus test.parquet
-- Optional nutzt close (falls vorhanden) nur für Buy&Hold Kurve
-- Startkapital default: 100000 (wie viele README-Beispiele)
-- qty default: 1 (wie dein Deployment typischerweise)
+Inputs:
+- data/processed/test.parquet (Features, Targets, Timestamps)
+- data/raw/QQQ_1m.parquet (OHLC for execution simulation)
+- models/feed_forward/multihorizon_nn.pt (Model)
+- models/scaler.pkl (Scaler)
 
-Run:
-  python scripts/09_backtesting/ff_trade_backtest.py --threshold 0.6 --hold-bars 15 --start-capital 100000 --qty 1
+Config:
+- Automatically loads defaults from conf/trading.yaml
 """
-
-from __future__ import annotations
 
 import argparse
 import sys
+import yaml
 from pathlib import Path
 import importlib.util
+import datetime
+import pytz
 
 import numpy as np
 import pandas as pd
 import torch
+import joblib
 import matplotlib.pyplot as plt
 
+# --- Setup ---
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parents[1]
+sys.path.append(str(PROJECT_ROOT))
 
-def find_project_root(start: Path) -> Path:
-    candidates = [start] + list(start.parents)
-    for p in candidates:
-        if (p / "data" / "processed").exists() and (p / "models").exists() and (p / "scripts").exists():
-            return p
-    return start.parents[1]
+# Helper to load model class
+try:
+    model_script_path = PROJECT_ROOT / "scripts" / "07_modeling" / "07_feed_forward.py"
+    spec = importlib.util.spec_from_file_location("feed_forward_module", model_script_path)
+    ff_module = importlib.util.module_from_spec(spec)
+    sys.modules["feed_forward_module"] = ff_module
+    spec.loader.exec_module(ff_module)
+    MultiHorizonMLP = ff_module.MultiHorizonMLP
+except Exception as e:
+    print(f"Error importing model: {e}")
+    sys.exit(1)
 
+# --- Classes ---
 
-def sigmoid(x: np.ndarray) -> np.ndarray:
+class Position:
+    def __init__(self, entry_time, entry_price, qty, stop_loss, take_profit, reason="Signal"):
+        self.entry_time = entry_time
+        self.entry_price = float(entry_price)
+        self.qty = int(qty)
+        self.stop_loss = float(stop_loss)
+        self.take_profit = float(take_profit)
+        self.reason = reason
+        self.highest_price = float(entry_price)
+        self.status = "OPEN"
+        self.exit_time = None
+        self.exit_price = 0.0
+        self.exit_reason = ""
+        
+    def check_exit(self, timestamp, low, high, close, trading_cfg):
+        """
+        Check if position should close based on Intrabar High/Low.
+        Conservative assumption: Only one bound is hit per bar.
+        Rules:
+        - If Low <= SL: Stopped Out
+        - If High >= TP: Take Profit
+        - If both: Worst case first (Stop Loss) unless High happens to be Open (unlikely to know).
+          Conservative: Assume SL hit if both hit.
+        """
+        # Update High Watermark
+        self.highest_price = max(self.highest_price, high)
+        
+        # Trailing Logic
+        trail_en = trading_cfg.get("TRAILING_STOP_ENABLED", False)
+        trail_pct = trading_cfg.get("TRAILING_STOP_PCT", 0.0)
+        
+        effective_sl = self.stop_loss
+        if trail_en and trail_pct > 0:
+            trail_price = self.highest_price * (1.0 - trail_pct)
+            effective_sl = max(self.stop_loss, trail_price)
+
+        # 1. Stop Loss (Fixed or Trailing)
+        if low <= effective_sl:
+            self.exit(timestamp, effective_sl, "StopLoss" if effective_sl == self.stop_loss else "TrailingStop")
+            return True
+            
+        # 2. Take Profit
+        if high >= self.take_profit:
+            self.exit(timestamp, self.take_profit, "TakeProfit")
+            return True
+            
+        # 3. Time Exit will be handled by caller (Max Hold)
+        return False
+
+    def exit(self, timestamp, price, reason):
+        self.status = "CLOSED"
+        self.exit_time = timestamp
+        self.exit_price = float(price)
+        self.exit_reason = reason
+
+def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
 
+def run_backtest(args, df_merged, model, scaler, device='cpu'):
+    print(f"Running simulation on {len(df_merged)} bars...")
+    # Not used in this version
+    pass 
 
-def import_multihorizon_mlp(project_root: Path) -> type:
-    model_script_path = project_root / "scripts" / "07_modeling" / "07_feed_forward.py"
-    if not model_script_path.exists():
-        raise FileNotFoundError(f"Training script not found: {model_script_path}")
+def main():
+    # Load config from YAML
+    TRADING_CONFIG_PATH = PROJECT_ROOT / "conf" / "trading.yaml"
+    config = {}
+    if TRADING_CONFIG_PATH.exists():
+        with open(TRADING_CONFIG_PATH, "r") as f:
+            config = yaml.safe_load(f) or {}
 
-    spec = importlib.util.spec_from_file_location("feed_forward_module", model_script_path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["feed_forward_module"] = module
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
+    trading = config.get("TRADING", {})
+    risk = config.get("RISK_MANAGEMENT", {})
+    execution = config.get("EXECUTION", {})
 
-    if not hasattr(module, "MultiHorizonMLP"):
-        raise AttributeError("MultiHorizonMLP not found in 07_feed_forward.py")
-
-    return module.MultiHorizonMLP
-
-
-def load_test_data(data_path: Path, hold_bars: int) -> tuple[np.ndarray, pd.DataFrame]:
-    x_path = data_path / "X_test_scaled.npy"
-    pq_path = data_path / "test.parquet"
-
-    if not x_path.exists():
-        raise FileNotFoundError(f"Missing: {x_path}")
-    if not pq_path.exists():
-        raise FileNotFoundError(f"Missing: {pq_path}")
-
-    X = np.load(x_path).astype(np.float32)
-    df = pd.read_parquet(pq_path)
-
-    if "target_15m" not in df.columns:
-        raise KeyError(f"Missing 'target_15m' in {pq_path}")
-
-    n = min(len(df), X.shape[0])
-    if n <= hold_bars + 1:
-        raise RuntimeError("Not enough rows for trade simulation after alignment.")
-    if n != X.shape[0] or n != len(df):
-        print(f"[WARN] Length mismatch -> aligned to n={n} (X={X.shape[0]}, df={len(df)})")
-
-    df = df.iloc[:n]
-    # if timestamp is stored in index, keep it as column
-    if "timestamp" not in df.columns and df.index.name == "timestamp":
-        df = df.reset_index()          # creates 'timestamp' column
-    else:
-        df = df.reset_index(drop=True) # keep old behavior
-
-    return X[:n], df
-
-
-
-def infer_probs(model: torch.nn.Module, X: np.ndarray, batch_size: int = 4096) -> np.ndarray:
-    model.eval()
-    N = X.shape[0]
-    probs = np.zeros((N, 3), dtype=np.float32)
-    with torch.no_grad():
-        for i in range(0, N, batch_size):
-            xb = torch.from_numpy(X[i:i + batch_size]).float()
-            logits = model(xb).cpu().numpy()
-            probs[i:i + batch_size] = sigmoid(logits).astype(np.float32)
-    return probs
-
-
-def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--threshold", type=float, default=0.55, help="Enter long if Prob(UP_15m) >= threshold")
-    parser.add_argument("--hold-bars", type=int, default=15, help="Hold duration in bars (1 bar = 1 minute)")
-    parser.add_argument("--start-capital", type=float, default=100000.0, help="Start capital for equity curve")
-    parser.add_argument("--qty", type=int, default=1, help="Shares per trade (like deployment; default 1)")
-    parser.add_argument("--fee", type=float, default=0.0, help="Flat fee per trade (entry+exit each)")
-    parser.add_argument("--save-trades", action="store_true", help="Save trades CSV to images/backtesting/")
+    # Defaults from YAML
+    parser.add_argument("--threshold", type=float, default=trading.get("PROB_THRESHOLD", 0.55))
+    parser.add_argument("--max-positions", type=int, default=trading.get("MAX_POSITIONS", 3))
+    parser.add_argument("--hold-bars", type=int, default=trading.get("MAX_HOLD_MINUTES", 15))
+    parser.add_argument("--start-capital", type=float, default=100000.0)
+    parser.add_argument("--risk-pct", type=float, default=risk.get("RISK_PER_TRADE_PCT", 0.005)) 
+    parser.add_argument("--sl-pct", type=float, default=risk.get("STOP_LOSS_VALUE", 0.004))
+    parser.add_argument("--tp-rr", type=float, default=risk.get("TAKE_PROFIT_VALUE", 1.5))
+    parser.add_argument("--slippage-bps", type=float, default=execution.get("SLIPPAGE_BPS", 2.0))
+    parser.add_argument("--fee", type=float, default=execution.get("FEE_PER_ORDER", 0.0))
+    parser.add_argument("--cooldown", type=int, default=trading.get("COOLDOWN_MINUTES", 5))
+    
+    # Trailing args
+    parser.add_argument("--trailing-enabled", action='store_true', default=risk.get("TRAILING_STOP_ENABLED", False))
+    parser.add_argument("--trailing-pct", type=float, default=risk.get("TRAILING_STOP_PCT", 0.0))
+    
     args = parser.parse_args()
 
-    script_dir = Path(__file__).resolve().parent
-    project_root = find_project_root(script_dir)
-
-    data_path = project_root / "data" / "processed"
-    model_path = project_root / "models" / "feed_forward" / "multihorizon_nn.pt"
-    images_dir = project_root / "images" / "backtesting"
-    images_dir.mkdir(parents=True, exist_ok=True)
-
-    print("=" * 90)
-    print("FF TRADE BACKTEST (Direction) – Deployment-like Simulation on Test Set")
-    print(f"PROJECT_ROOT: {project_root}")
-    print("=" * 90)
-
-    # Load
-    X_test, df_test = load_test_data(data_path, args.hold_bars)
-    x_dim = X_test.shape[1]
-    print(f"[DATA] X_test_scaled: {X_test.shape}")
-    print(f"[DATA] test.parquet:  {df_test.shape}")
-
-    # Model
-    if not model_path.exists():
-        raise FileNotFoundError(f"Model not found: {model_path}")
-
-    MultiHorizonMLP = import_multihorizon_mlp(project_root)
-    model = MultiHorizonMLP(in_dim=x_dim, out_dim=3)
-    state = torch.load(model_path, map_location=torch.device("cpu"))
+    # Paths
+    DATA_DIR = PROJECT_ROOT / "data" / "processed"
+    RAW_DIR = PROJECT_ROOT / "data" / "raw"
+    MODEL_PATH = PROJECT_ROOT / "models" / "feed_forward" / "multihorizon_nn.pt"
+    SCALER_PATH = PROJECT_ROOT / "models" / "scaler.pkl"
+    X_TEST_PATH = DATA_DIR / "X_test_scaled.npy"
+    TEST_PQ_PATH = DATA_DIR / "test.parquet"
+    RAW_QQQ_PATH = RAW_DIR / "QQQ_1m.parquet"
+    
+    # 1. Load Data
+    print("Loading data...")
+    if not TEST_PQ_PATH.exists() or not RAW_QQQ_PATH.exists():
+        print("Missing data files.")
+        sys.exit(1)
+        
+    df_test = pd.read_parquet(TEST_PQ_PATH)
+    df_raw = pd.read_parquet(RAW_QQQ_PATH)
+    
+    # Align Timestamps
+    if "timestamp" not in df_test.columns:
+        df_test = df_test.reset_index()
+        if df_test.columns[0] in ["index", "Date", "Datetime"]:
+             df_test.rename(columns={df_test.columns[0]: "timestamp"}, inplace=True)
+    df_test["timestamp"] = pd.to_datetime(df_test["timestamp"], utc=True)
+    
+    if "timestamp" not in df_raw.columns:
+         df_raw = df_raw.reset_index()
+         col0 = df_raw.columns[0]
+         if col0 in ["index", "Date", "Datetime"]:
+             df_raw.rename(columns={col0: "timestamp"}, inplace=True)
+    df_raw["timestamp"] = pd.to_datetime(df_raw["timestamp"], utc=True)
+    
+    # Load X_test
+    X_test = np.load(X_TEST_PATH)
+    df_test["orig_idx"] = np.arange(len(df_test))
+    
+    # Merge Cleanly
+    cols_to_merge = ["timestamp", "open", "high", "low", "close"]
+    df_merged = pd.merge(df_test, df_raw[cols_to_merge], on="timestamp", how="inner", suffixes=("", "_raw"))
+    df_merged = df_merged.sort_values("timestamp").reset_index(drop=True)
+    
+    valid_indices = df_merged["orig_idx"].values
+    X_valid = X_test[valid_indices]
+    
+    print(f"Aligned Data: {len(df_merged)} bars.")
+    print(f"Config: Th={args.threshold:.2f}, Hold={args.hold_bars}m, SL={args.sl_pct:.1%}, TP={args.tp_rr:.1f}x")
+    print(f"Trailing Stop: {args.trailing_enabled} ({args.trailing_pct:.1%})")
+    
+    # 2. Model Inference (Batch)
+    print("Running Inference...")
+    in_dim = X_valid.shape[1]
+    model = MultiHorizonMLP(in_dim=in_dim, out_dim=3)
+    state = torch.load(MODEL_PATH, map_location='cpu')
     model.load_state_dict(state)
     model.eval()
-    print(f"[MODEL] Loaded: {model_path.name} | in_dim={x_dim} | out_dim=3")
+    
+    probs = []
+    batch_size = 4096
+    with torch.no_grad():
+        for i in range(0, len(X_valid), batch_size):
+            xb = torch.FloatTensor(X_valid[i:i+batch_size])
+            logits = model(xb)
+            p = sigmoid(logits[:, 1].numpy()) # 15m up
+            probs.append(p)
+    probs = np.concatenate(probs)
+    
+    df_merged["prob"] = probs
+    
+    # 3. Simulation Loop
+    print("Simulating Trades...")
+    realized_pnl = 0.0
+    positions = []
+    closed_trades = []
+    equity_curve = []
+    
+    last_trade_time = None
+    
+    # Config dict for trailing
+    trading_cfg = {
+        "TRAILING_STOP_ENABLED": args.trailing_enabled,
+        "TRAILING_STOP_PCT": args.trailing_pct
+    }
+    
+    for i in range(len(df_merged) - 1):
+        row = df_merged.iloc[i]
+        next_row = df_merged.iloc[i+1] # The bar we trade inside
+        
+        timestamp = row["timestamp"]
+        prob = row["prob"]
+        
+        # Decide which close to use for mark-to-market.
+        close_price = row.get("close_raw", row.get("close", 0.0))
 
-    # Inference
-    probs = infer_probs(model, X_test, batch_size=4096)
-    p15 = probs[:, 1]  # Prob(UP_15m)
-    r15 = df_test["target_15m"].astype(float).values  # realized return if holding 15m
-
-    # Buy&Hold baseline (optional if close exists)
-    close_col = None
-    for c in ["close", "Close"]:
-        if c in df_test.columns:
-            close_col = c
-            break
-    # Optional timestamp column for nicer trade logs (no impact on strategy)
-    time_col = None
-    for c in ["timestamp", "datetime", "date", "time", "Datetime", "Date", "Timestamp", "Time"]:
-        if c in df_test.columns:
-            time_col = c
-            break
-
-    # Simulation: cash-based with qty
-    start_cap = float(args.start_capital)
-    cash = start_cap
-    equity_curve = np.full(len(df_test), np.nan, dtype=np.float64)  # mark equity per bar
-    trades = []
-
-    i = 0
-    N = len(df_test)
-
-    while i < N - args.hold_bars:
-        equity_curve[i] = cash
-
-        if p15[i] >= args.threshold:
-            # Entry
-            # If we have close, use it as entry price; otherwise simulate via returns on cash (fallback)
-            if close_col is not None:
-                entry_price = float(df_test.loc[i, close_col])
-                cost = args.qty * entry_price + args.fee
-                if cost > cash:
-                    # not enough cash -> skip signal
-                    i += 1
-                    continue
-
-                cash -= cost
-
-                # Exit after hold
-                trade_ret = float(r15[i])  # return from i -> i+hold
-                exit_price = entry_price * (1.0 + trade_ret)
-                proceeds = args.qty * exit_price - args.fee
-                cash += proceeds
-
-                pnl = proceeds - (args.qty * entry_price) - args.fee  # approx (double fee already included)
+        # Check Exits using NEXT BAR candles (Realistic)
+        open_next = next_row["open"]
+        high_next = next_row["high"]
+        low_next = next_row["low"]
+        close_next = next_row.get("close_raw", next_row.get("close", 0.0))
+        time_next = next_row["timestamp"]
+        
+        # Update Equity (Realized + Open PnL of active positions)
+        open_pnl = sum([p.qty * (close_price - p.entry_price) for p in positions])
+        current_equity = args.start_capital + realized_pnl + open_pnl
+        equity_curve.append(current_equity)
+        
+        active_positions = []
+        for p in positions:
+            is_closed = False
+            
+            # Check Max Hold
+            elapsed = (time_next - p.entry_time).total_seconds() / 60
+            if elapsed >= args.hold_bars:
+                p.exit(time_next, close_next, "MaxHold")
+                is_closed = True
+                
+            # Check SL/TP (Intrabar)
+            elif p.check_exit(time_next, low_next, high_next, close_next, trading_cfg):
+                is_closed = True
+            
+            if is_closed:
+                # Add to Realized PnL immediately
+                slip_loss = p.exit_price * (args.slippage_bps / 10000.0)
+                net_exit = p.exit_price - slip_loss
+                pnl = (net_exit - p.entry_price) * p.qty - (args.fee * 2)
+                realized_pnl += pnl
+                closed_trades.append(p)
             else:
-                # Fallback: apply return to a "position fraction" = all-in of current cash (not qty based)
-                trade_ret = float(r15[i])
-                pnl = cash * trade_ret
-                cash = cash * (1.0 + trade_ret) - 2.0 * args.fee
-            def get_time(pos: int):
-                if time_col is None:
-                 return None
-                v = df_test.iloc[pos][time_col]  # iloc = positionsbasiert (robust)
-                if time_col == "timestamp":      # ms -> datetime
-                    return pd.to_datetime(v, unit="ms", utc=True)
-                return v
-            entry_time = get_time(i)
-            exit_time  = get_time(i + args.hold_bars)
-            trades.append(
-                {
-                    "entry_time": entry_time,
-                    "exit_time": exit_time,
-                    "qty": int(args.qty),
-                    "reason": "MaxHold",
-                    "i_entry": i,
-                    "i_exit": i + args.hold_bars,
-                    "prob_15m": float(p15[i]),
-                    "ret_15m": trade_ret,
-                    "pnl": float(pnl),
-                    "cash_after": float(cash),
-                    "win": int(trade_ret > 0.0),
-                }
-            )
-
-            # Fill equity between entry and exit as flat (simple step curve)
-            j_end = min(N, i + args.hold_bars)
-            equity_curve[i:j_end] = cash
-            i += args.hold_bars
-        else:
-            i += 1
-
-    # Fill remaining NaNs with last known cash
-    last = cash
-    for k in range(len(equity_curve)):
-        if np.isnan(equity_curve[k]):
-            equity_curve[k] = last
-        else:
-            last = equity_curve[k]
-
-    trades_df = pd.DataFrame(trades)
-    total_return = (cash / start_cap) - 1.0
-
-    # Stats
-    print("\n" + "-" * 90)
-    print(f"Config: threshold={args.threshold:.2f} | hold_bars={args.hold_bars} | start_capital={start_cap:.2f} | qty={args.qty}")
-    print("-" * 90)
-    print(f"Trades:       {len(trades_df)}")
-    print(f"Final equity: {cash:,.2f}")
-    print(f"Total return: {total_return:.2%}")
-
-    if len(trades_df) > 0:
-        win_rate = float(trades_df["win"].mean())
-        avg_ret = float(trades_df["ret_15m"].mean())
-        med_ret = float(trades_df["ret_15m"].median())
-        avg_pnl = float(trades_df["pnl"].mean())
-        print(f"Win rate:     {win_rate:.2%}")
-        print(f"Avg ret:      {avg_ret:.4%}")
-        print(f"Med ret:      {med_ret:.4%}")
-        print(f"Avg PnL:      {avg_pnl:,.2f}")
-    cols = [c for c in ["entry_time", "qty", "pnl", "reason"] if c in trades_df.columns]
-    if cols:
+                active_positions.append(p)
+        positions = active_positions
+        
+        # 2. Check Entry Signal (at Close i) -> Enters at Open i+1
+        if len(positions) < args.max_positions:
+            if prob >= args.threshold:
+                # Check Cooldown
+                is_cooldown = False
+                if last_trade_time:
+                    if (timestamp - last_trade_time).total_seconds() / 60 < args.cooldown:
+                        is_cooldown = True
+                
+                if not is_cooldown:
+                    # ENTRY
+                    base_equity = args.start_capital + realized_pnl
+                    risk_amt = base_equity * args.risk_pct
+                    
+                    entry_price = open_next # Execution Price (realistic)
+                    
+                    # Slippage penalty on entry
+                    slippage = entry_price * (args.slippage_bps / 10000.0)
+                    entry_price_slip = entry_price + slippage
+                    
+                    stop_dist = entry_price_slip * args.sl_pct
+                    stop_price = entry_price_slip - stop_dist
+                    take_profit_price = entry_price_slip + (stop_dist * args.tp_rr)
+                    
+                    qty = int(risk_amt / stop_dist) if stop_dist > 0 else 0
+                    if qty > 0:
+                        pos = Position(time_next, entry_price_slip, qty, stop_price, take_profit_price)
+                        positions.append(pos)
+                        last_trade_time = timestamp
+                        
+    # End Loop
+    
+    # Close remaining
+    final_price = df_merged.iloc[-1].get("close_raw", df_merged.iloc[-1].get("close", 0.0))
+    final_time = df_merged.iloc[-1]["timestamp"]
+    for p in positions:
+        p.exit(final_time, final_price, "EndSim")
+        
+        slip_loss = p.exit_price * (args.slippage_bps / 10000.0)
+        net_exit = p.exit_price - slip_loss
+        pnl = (net_exit - p.entry_price) * p.qty - (args.fee * 2)
+        realized_pnl += pnl
+        
+        closed_trades.append(p)
+        
+    # Calculate Stats
+    print("\n--- Results ---")
+    wins = 0
+    trade_dicts = []
+    
+    for t in closed_trades:
+        # PnL logic repeated just for CSV log
+        slip_loss = t.exit_price * (args.slippage_bps / 10000.0)
+        net_exit = t.exit_price - slip_loss
+        net = (net_exit - t.entry_price) * t.qty - (args.fee * 2)
+        
+        if net > 0: wins += 1
+        
+        trade_dicts.append({
+            "entry_time": t.entry_time,
+            "exit_time": t.exit_time,
+            "qty": t.qty,
+            "entry_price": t.entry_price,
+            "exit_price": t.exit_price,
+            "reason": t.exit_reason,
+            "pnl": net
+        })
+        
+    final_equity = args.start_capital + realized_pnl
+    win_rate = wins / len(closed_trades) if closed_trades else 0
+    
+    print(f"Total Trades: {len(closed_trades)}")
+    print(f"Final Equity: {final_equity:,.2f} (Start: {args.start_capital})")
+    print(f"Total Return: {(final_equity/args.start_capital - 1):.2%}")
+    print(f"Win Rate:     {win_rate:.2%}")
+    print(f"Total PnL:    {realized_pnl:,.2f}")
+    
+    # Save
+    if trade_dicts:
+        df_tr = pd.DataFrame(trade_dicts)
+        out_csv = PROJECT_ROOT / "reports" / "backtest_trades.csv"
+        df_tr.to_csv(out_csv, index=False)
+        print(f"Saved trades to {out_csv}")
+        
+        # ADDED PRINT OF LAST 10 TRADES
         print("\n--- Last 10 trades ---")
-        print(trades_df[cols].tail(10).to_string(index=True))
-
-    # Plot equity curve (+ buy&hold)
-    plt.figure(figsize=(12, 5))
-    plt.plot(equity_curve, label="Strategy Equity", alpha=0.9)
-
-    if close_col is not None:
-        close = df_test[close_col].astype(float).values
-        bh = start_cap * (close / close[0])
-        plt.plot(bh, label="Buy & Hold (same start capital)", alpha=0.7)
-
-    plt.title("FF Trade Backtest (Direction) – Equity Curve")
-    plt.xlabel("Test index")
-    plt.ylabel("Equity")
+        print(df_tr[["entry_time", "qty", "pnl", "reason"]].tail(10))
+        
+    # Plot
+    plt.figure(figsize=(12, 6))
+    plt.plot(equity_curve, label="Strategy Equity", linewidth=1.5)
+    plt.axhline(y=args.start_capital, color='r', linestyle='--', alpha=0.3, label="Start Capital")
+    plt.title(f"Backtest Equity Curve (Return: {(final_equity/args.start_capital - 1):.2%})")
+    plt.xlabel("Bars (Minutes)")
+    plt.ylabel("Equity ($)")
     plt.legend()
     plt.grid(True, alpha=0.2)
-
-    out = images_dir / "ff_trade_backtest_equity.png"
+    # OUTPUT PATH CHANGED to images/backtesting
+    out_png = PROJECT_ROOT / "images" / "backtesting" / "ff_trade_backtest_equity.png"
     plt.tight_layout()
-    plt.savefig(out, dpi=160)
-    plt.close()
-    print(f"\n[PLOT] {out}")
-
-    # Save trades
-    if args.save_trades and len(trades_df) > 0:
-        trades_out = images_dir / "ff_trade_backtest_trades.csv"
-        trades_df.to_csv(trades_out, index=False)
-        print(f"[SAVE] Trades CSV: {trades_out}")
-
-    print("\nDONE.")
-
+    plt.savefig(out_png, dpi=150)
+    print(f"Saved plot to {out_png}")
 
 if __name__ == "__main__":
     main()

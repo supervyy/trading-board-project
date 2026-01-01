@@ -8,12 +8,12 @@ TRADING:
 
 RISK_MANAGEMENT:
   STOP_LOSS_TYPE: "pct"
-  STOP_LOSS_VALUE: 0.010 # Optimized: 1.0% (Wide stop to avoid noise)
+  STOP_LOSS_VALUE: 0.005 # Reverted: 0.5% (Tight stop was better)
   TAKE_PROFIT_TYPE: "rr"
-  TAKE_PROFIT_VALUE: 2.0 # Target 2.0x Risk (Trend following)
-  TRAILING_STOP_ENABLED: false
-  TRAILING_STOP_PCT: 0.005 # 0.5% Trailing Stop
-  RISK_PER_TRADE_PCT: 0.005 # Reduced to 0.5% for lower volatility
+  TAKE_PROFIT_VALUE: 1.5 # Reverted: 1.5x Risk
+  TRAILING_STOP_ENABLED: true
+  TRAILING_STOP_PCT: 0.003 # Reverted: 0.3% Trailing Stop
+  RISK_PER_TRADE_PCT: 0.005 # Reverted to 0.5%
   MAX_NOTIONAL_PCT: 0.20
 
 EXECUTION:

@@ -1,7 +1,4 @@
-data/processed/pre_split_data.parquet
-data/processed/train.parquet
-data/processed/val.parquet
-data/processed/test.parquet
+data/
 __pycache__/
 *.pyc
 *.pyo

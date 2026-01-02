@@ -3,6 +3,13 @@ return_5
 realized_vol_10
 volume_norm
 volume_acceleration
+rsi_14
+macd_hist
+bb_position
+bb_width
+atr_rel
+return_5_lag1
+return_15_lag1
 NVDA_return_5
 NVDA_volume_norm
 divergence_NVDA_QQQ_5
@@ -15,5 +22,7 @@ high_vol_regime
 low_corr_regime
 overextended_up
 overextended_down
+bb_over_upper
+bb_under_lower
 bid_ask_spread_proxy
 is_15_30_16_00

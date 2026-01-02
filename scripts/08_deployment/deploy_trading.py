@@ -10,24 +10,19 @@ import pandas as pd
 import yfinance as yf
 import yaml
 from pathlib import Path
+import yaml
+from pathlib import Path
+
+import yaml
+from pathlib import Path
 import importlib.util
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict
 
-# Alpaca Imports
-from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, StopOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce, OrderStatus
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
-from alpaca.data.timeframe import TimeFrame
-
-# --- Project Setup ---
+# Add project root to sys.path to allow importing from other scripts (needed for relative imports inside the loaded module)
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
-# Import Model Class Dynamically
+# Import the model class from the training script using importlib (bypass numeric package name syntax error)
 try:
     model_script_path = PROJECT_ROOT / "scripts" / "07_modeling" / "07_feed_forward.py"
     spec = importlib.util.spec_from_file_location("feed_forward_module", model_script_path)
@@ -40,33 +35,46 @@ except Exception as e:
     print(f"⚠️ Could not import MultiHorizonMLP from {model_script_path}: {e}")
     sys.exit(1)
 
-# --- Configuration Loading ---
-PARAMS_PATH = PROJECT_ROOT / "conf" / "params.yaml"
-TRADING_CONFIG_PATH = PROJECT_ROOT / "conf" / "trading.yaml"
+from alpaca.trading.client import TradingClient
+from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, TimeInForce
+
+# --- Configuration ---
+# API Keys (Ensure these are set in your environment variables)
+# Helper for paths (Already defined above)
+# SCRIPT_DIR = Path(__file__).resolve().parent
+# PROJECT_ROOT = SCRIPT_DIR.parents[1]
 KEYS_PATH = PROJECT_ROOT / "conf" / "keys.yaml"
 
-def load_config(path: Path) -> dict:
-    if path.exists():
-        with open(path, "r") as f:
-            return yaml.safe_load(f) or {}
-    return {}
+# API Keys
+try:
+    with open(KEYS_PATH, "r") as f:
+        keys = yaml.safe_load(f)
+    print(f"✅ Loaded keys from {KEYS_PATH}")
+    ALPACA_API_KEY = keys["KEYS"]["APCA-API-KEY-ID-Data"]
+    ALPACA_SECRET_KEY = keys["KEYS"]["APCA-API-SECRET-KEY-Data"]
+except Exception as e:
+    print(f"⚠️ Failed to load keys from {KEYS_PATH}: {e}")
+    # Fallback to env or None
+    ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
+    ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
 
-CONF_PARAMS = load_config(PARAMS_PATH)
-CONF_TRADING = load_config(TRADING_CONFIG_PATH)
+# ALPACA_BASE_URL is handled by paper=True in TradingClient
 
-# Merged Config
-TRADING_OPTS = CONF_TRADING.get("TRADING", {})
-RISK_OPTS = CONF_TRADING.get("RISK_MANAGEMENT", {})
-EXEC_OPTS = CONF_TRADING.get("EXECUTION", {})
-
-SYMBOL = TRADING_OPTS.get("SYMBOL", "QQQ")
+# Trading Settings
+SYMBOL_TRADE = "QQQ"
 SYMBOLS_DATA = ["QQQ", "NVDA", "AAPL", "MSFT", "GOOGL", "AMZN"]
 TECH_SYMBOLS = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN"]
+PROB_THRESHOLD = 0.55
+HOLD_DURATION_MINUTES = 15
 
+# Model Paths
+# User requested model from 07_feed_forward
 MODEL_PATH = PROJECT_ROOT / "models" / "feed_forward" / "multihorizon_nn.pt"
 SCALER_PATH = PROJECT_ROOT / "models" / "scaler.pkl"
 
-# Feature List (Must match Training)
+# Feature List (Matches training data subset)
+# Based on sample_X_train_scaled.csv (19 features)
 MODEL_FEATURES = [
     "ema_diff", "return_5", "realized_vol_10", "volume_norm", "volume_acceleration",
     "NVDA_return_5", "NVDA_volume_norm", "divergence_NVDA_QQQ_5", "corr_QQQ_NVDA_15",
@@ -75,446 +83,501 @@ MODEL_FEATURES = [
     "bid_ask_spread_proxy", "is_15_30_16_00"
 ]
 
-# --- Helper Classes ---
-
-@dataclass
-class Position:
-    symbol: str
-    entry_time: datetime.datetime
-    entry_price: float
-    qty: float
-    stop_price: float
-    take_profit_price: float
-    highest_price: float
-    status: str = "OPEN"
-    order_id: str = ""
-    exit_reason: str = ""
-
-class DataProvider:
-    def __init__(self, use_alpaca: bool, alpaca_data_client=None):
-        self.use_alpaca = use_alpaca
-        self.alpaca_data = alpaca_data_client
-
-    def fetch_data(self) -> Dict[str, pd.DataFrame]:
-        """Fetch last 5 days of 1-minute data."""
-        if self.use_alpaca and self.alpaca_data:
-             return self._fetch_alpaca()
-        return self._fetch_yfinance()
-
-    def _fetch_yfinance(self) -> Dict[str, pd.DataFrame]:
-        data = {}
-        tickers = " ".join(SYMBOLS_DATA)
-        try:
-            # interval="1m" allows max 7 days lookback
-            df_all = yf.download(tickers, period="5d", interval="1m", progress=False, group_by='ticker', auto_adjust=False)
-            
-            if len(SYMBOLS_DATA) > 1:
-                for sym in SYMBOLS_DATA:
-                    try:
-                        df_sym = df_all[sym].copy()
-                        if df_sym.empty: continue
-                        
-                        # Timezone handling
-                        if df_sym.index.tz is None:
-                            df_sym.index = df_sym.index.tz_localize('UTC').tz_convert('US/Eastern')
-                        else:
-                            df_sym.index = df_sym.index.tz_convert('US/Eastern')
-                        
-                        # Filter RTH
-                        df_sym = df_sym.between_time('09:30', '16:00')
-                        data[sym] = df_sym
-                    except Exception:
-                        pass
-            else:
-                # Handle single ticker case if needed
-                pass
-        except Exception as e:
-            print(f"Data Fetch Error (YF): {e}")
-            return {}
-        
-        return self._align_data(data)
-
-    def _fetch_alpaca(self) -> Dict[str, pd.DataFrame]:
-        # Placeholder for Alpaca Data API
-        # Implementation depends on subscription level (SIP vs IEX)
-        print("Existing Alpaca Data implementation skipped for brevity/paid-data constraint, fallback to YF.")
-        return self._fetch_yfinance()
-
-    def _align_data(self, data: Dict[str, pd.DataFrame]) -> Dict[str, pd.DataFrame]:
-        if not data: return {}
-        common = data[SYMBOL].index
-        for sym in data:
-            common = common.intersection(data[sym].index)
-        
-        aligned = {}
-        for sym in data:
-            aligned[sym] = data[sym].loc[common]
-        return aligned
-
-class FeatureEngineer:
-    @staticmethod
-    def calculate(df_dict: Dict[str, pd.DataFrame], scaler_features: List[str]) -> pd.DataFrame:
-        """Standard feature engineering pipeline matching training."""
-        if SYMBOL not in df_dict: return pd.DataFrame()
-        
-        # 1. Core QQQ
-        df_qqq = df_dict[SYMBOL].copy()
-        close = df_qqq["Close"]
-        vol = df_qqq["Volume"]
-        
-        # Basic
-        df_qqq["ema_5"] = close.ewm(span=5, adjust=False).mean()
-        df_qqq["ema_20"] = close.ewm(span=20, adjust=False).mean()
-        df_qqq["ema_diff"] = df_qqq["ema_5"] - df_qqq["ema_20"]
-        
-        df_qqq["return_5"] = close.pct_change(5)
-        df_qqq["realized_vol_10"] = close.pct_change().rolling(10).std()
-        
-        # Norm
-        vol_mean = vol.rolling(60).mean().replace(0, np.nan)
-        df_qqq["volume_norm"] = vol / vol_mean
-        df_qqq["volume_acceleration"] = df_qqq["volume_norm"].diff(5)
-        
-        df_qqq["bid_ask_spread_proxy"] = (df_qqq["High"] - df_qqq["Low"]) / close
-        
-        df_qqq["overextended_up"] = (close > df_qqq["ema_20"] * 1.005).astype(int)
-        df_qqq["overextended_down"] = (close < df_qqq["ema_20"] * 0.995).astype(int)
-        
-        # Vol Regime
-        v = df_qqq["realized_vol_10"]
-        df_qqq["high_vol_regime"] = (v > v.rolling(100, min_periods=50).quantile(0.8)).astype(int)
-        
-        # Time
-        idx_et = df_qqq.index
-        df_qqq["is_15_30_16_00"] = ((idx_et.hour == 15) & (idx_et.minute >= 30)).astype(int)
-        
-        # 2. Tech Features & Cross Asset
-        tech_rets = []
-        for sym in TECH_SYMBOLS:
-            if sym in df_dict:
-                dft = df_dict[sym].copy()
-                cl = dft["Close"]
-                vl = dft["Volume"]
-                # Prefixed
-                df_qqq[f"{sym}_return_5"] = cl.pct_change(5)
-                # NVDA specific
-                if sym == "NVDA":
-                    vm = vl.rolling(60).mean().replace(0, np.nan)
-                    df_qqq["NVDA_volume_norm"] = vl / vm
-                    
-                tech_rets.append(f"{sym}_return_5")
-
-        # 3. Cross Stats
-        if tech_rets:
-            # We need to make sure we don't have NaNs from join
-            # Here we are just assigning columns to df_qqq assuming aligned index
-            
-            # Avg Tech Return
-            # Check availability
-            valid_cols = [c for c in tech_rets if c in df_qqq.columns]
-            if valid_cols:
-                avg_ret = df_qqq[valid_cols].mean(axis=1)
-                df_qqq["relative_strength"] = df_qqq["return_5"] - avg_ret
-                
-                # Unanimity
-                signs_tech = np.sign(df_qqq[valid_cols])
-                sign_q = np.sign(df_qqq["return_5"])
-                # vector broadcast
-                agree = signs_tech.eq(sign_q, axis=0).sum(axis=1)
-                df_qqq["tech_unanimity"] = agree / len(valid_cols)
-                
-                df_qqq["momentum_spread_5"] = df_qqq[valid_cols].std(axis=1)
-                
-                # Divergences
-                divs = df_qqq[valid_cols].sub(df_qqq["return_5"], axis=0).abs()
-                df_qqq["max_divergence"] = divs.max(axis=1)
-                
-                if "NVDA_return_5" in df_qqq.columns:
-                    df_qqq["divergence_NVDA_QQQ_5"] = df_qqq["NVDA_return_5"] - df_qqq["return_5"]
-                    df_qqq["corr_QQQ_NVDA_15"] = df_qqq["return_5"].rolling(15).corr(df_qqq["NVDA_return_5"])
-                    df_qqq["low_corr_regime"] = (df_qqq["corr_QQQ_NVDA_15"] < 0.5).astype(int)
-
-        # Fill NaNs
-        df_qqq = df_qqq.ffill().fillna(0.0)
-        
-        # 4. Align with Scaler
-        for f in scaler_features:
-            if f not in df_qqq.columns:
-                df_qqq[f] = 0.0
-                
-        return df_qqq[scaler_features]
-
-class TradingManager:
-    def __init__(self, api: TradingClient, model, scaler):
-        self.api = api
-        self.model = model
-        self.scaler = scaler
-        
-        self.positions: List[Position] = []
-        self.last_trade_time = None
-        
-        # Risk Params
-        self.sl_type = RISK_OPTS.get("STOP_LOSS_TYPE", "pct")
-        self.sl_val = RISK_OPTS.get("STOP_LOSS_VALUE", 0.004)
-        self.tp_type = RISK_OPTS.get("TAKE_PROFIT_TYPE", "rr")
-        self.tp_val = RISK_OPTS.get("TAKE_PROFIT_VALUE", 1.5)
-        self.trailing = RISK_OPTS.get("TRAILING_STOP_ENABLED", False)
-        self.trailing_pct = RISK_OPTS.get("TRAILING_STOP_PCT", 0.002)
-        
-        self.max_hold = TRADING_OPTS.get("MAX_HOLD_MINUTES", 15)
-        self.cooldown = TRADING_OPTS.get("COOLDOWN_MINUTES", 5)
-        self.max_pos = TRADING_OPTS.get("MAX_POSITIONS", 1)
-        self.one_per_bar = TRADING_OPTS.get("ONE_TRADE_PER_BAR", True)
-        self.risk_per_trade = RISK_OPTS.get("RISK_PER_TRADE_PCT", 0.005)
-        
-        self.equity = 100000.0 # Default fallback
-        self.sync_account()
-
-    def sync_account(self):
-        if self.api:
-            try:
-                acct = self.api.get_account()
-                self.equity = float(acct.equity)
-            except Exception as e:
-                print(f"Error syncing account: {e}")
-
-    def calculate_size(self, entry_price: float, stop_price: float) -> float:
-        """Calculate position size based on risk."""
-        risk_amt = self.equity * self.risk_per_trade
-        dist = abs(entry_price - stop_price)
-        if dist == 0: return 0
-        
-        qty = risk_amt / dist
-        
-        # Max Notional Cap
-        max_notional = self.equity * RISK_OPTS.get("MAX_NOTIONAL_PCT", 0.20)
-        qty_cap = max_notional / entry_price
-        
-        final_qty = min(qty, qty_cap)
-        return max(1, int(final_qty)) # At least 1 share
-
-    def check_exits(self, current_price: float, current_time: datetime.datetime):
-        """Check all open positions for exit signals."""
-        for pos in self.positions[:]:
-            if pos.status != "OPEN": continue
-            
-            # Updates
-            pos.highest_price = max(pos.highest_price, current_price)
-            
-            # Trailing Stop Update
-            if self.trailing:
-                new_stop = pos.highest_price * (1 - self.trailing_pct)
-                if new_stop > pos.stop_price:
-                    pos.stop_price = new_stop
-            
-            # Check Conditions
-            exit_signal = None
-            if current_price <= pos.stop_price:
-                exit_signal = "StopLoss"
-            elif current_price >= pos.take_profit_price:
-                exit_signal = "TakeProfit"
-            else:
-                elapsed = (current_time - pos.entry_time).total_seconds() / 60
-                if elapsed >= self.max_hold:
-                    exit_signal = "MaxHold"
-                    
-            if exit_signal:
-                print(f"📉 EXIT {pos.symbol}: {exit_signal} @ {current_price:.2f} (Entry: {pos.entry_price:.2f})")
-                self.close_position(pos, current_price, exit_signal)
-
-    def close_position(self, pos: Position, price: float, reason: str):
-        if self.api:
-            try:
-                # If we had bracket orders, we might need to cancel them or just sell flat
-                # Simple approach: Market Sell all
-                self.api.close_position(pos.symbol)
-            except Exception as e:
-                print(f"Error closing position alpaca: {e}")
-        
-        pos.status = "CLOSED"
-        pos.exit_reason = reason
-        self.positions.remove(pos)
-
-    def entry_signal(self, prob: float, price: float, current_time: datetime.datetime, atr: float = 0.0):
-        """Handle Entry Logic."""
-        # Check constraints
-        if len(self.positions) >= self.max_pos:
-            return
-        
-        if self.last_trade_time:
-            delta = (current_time - self.last_trade_time).total_seconds() / 60
-            if delta < self.cooldown:
-                return
-
-        # Calc Levels
-        if self.sl_type == "atr" and atr > 0:
-            stop_dist = atr * 2.0 # Fixed multiplier for now
-        else:
-            stop_dist = price * self.sl_val
-            
-        stop_price = price - stop_dist
-        
-        if self.tp_type == "rr":
-            tp_dist = stop_dist * self.tp_val
-        else:
-            tp_dist = price * self.tp_val # Interpreting as val directly
-            
-        tp_price = price + tp_dist
-        
-        # Sizing
-        qty = self.calculate_size(price, stop_price)
-        if qty < 1:
-            print("Risk too high or equity too low for min qty.")
-            return
-
-        print(f"🚀 ENTRY LONG {SYMBOL}: Prob {prob:.2f} | Price {price:.2f} | Qty {qty} | SL {stop_price:.2f} | TP {tp_price:.2f}")
-
-        # Execute
-        if self.api:
-            try:
-                # Bracket Order
-                req = MarketOrderRequest(
-                    symbol=SYMBOL,
-                    qty=qty,
-                    side=OrderSide.BUY,
-                    time_in_force=TimeInForce.DAY,
-                    stop_loss={'stop_price': round(stop_price, 2)},
-                    take_profit={'limit_price': round(tp_price, 2)}
-                )
-                res = self.api.submit_order(req)
-                print(f"Order Submitted: {res.id}")
-            except Exception as e:
-                print(f"Order Failed: {e}")
-                return
-
-        # Track Internally (Paper/Live sync)
-        # Note: If API, ideally we verify fill, but for now we assume immediate fill for tracking logic if not confirming orders
-        pos = Position(
-            symbol=SYMBOL,
-            entry_time=current_time,
-            entry_price=price,
-            qty=qty,
-            stop_price=stop_price,
-            take_profit_price=tp_price,
-            highest_price=price
-        )
-        self.positions.append(pos)
-        self.last_trade_time = current_time
+# Scaler calculates all available features (63+), but model only sees these 19.
 
 
-def main():
-    print("--- Advanced Trading Deployment (QQQ) ---")
-    
-    # 1. Credentials
-    keys = {}
-    if KEYS_PATH.exists():
-        with open(KEYS_PATH) as f:
-            y = yaml.safe_load(f)
-            keys = y.get("KEYS", {})
-    
-    API_KEY = keys.get("APCA-API-KEY-ID-Data") or os.getenv("ALPACA_API_KEY")
-    SECRET_KEY = keys.get("APCA-API-SECRET-KEY-Data") or os.getenv("ALPACA_SECRET_KEY")
-    
-    api = None
-    if EXEC_OPTS.get("DRY_RUN", True):
-        print("⚠️ DRY RUN MODE. No real orders.")
+# --- Feature Engineering Functions ---
+def engineer_tech_features_full(df, symbol):
+    """
+    Calculate full suite of features for a tech stock to match training data.
+    """
+    df = df.copy()
+    close = df['Close']
+    volume = df['Volume']
+    prefix = f"{symbol}_"
+
+    # EMAs
+    df[f'{prefix}ema_5'] = close.ewm(span=5, adjust=False).mean()
+    df[f'{prefix}ema_10'] = close.ewm(span=10, adjust=False).mean()
+    df[f'{prefix}ema_20'] = close.ewm(span=20, adjust=False).mean()
+
+    # EMA Slope
+    df[f'{prefix}ema_slope'] = df[f'{prefix}ema_5'] - df[f'{prefix}ema_20']
+
+    # Returns
+    df[f'{prefix}return_5'] = close.pct_change(5)
+    df[f'{prefix}return_15'] = close.pct_change(15)
+    df[f'{prefix}return_30'] = close.pct_change(30)
+
+    # Normalized Features
+    # Fallback if history is short: fill with 1.0 or mean
+    roll_vol = volume.rolling(60).mean().replace(0, np.nan)
+    df[f'{prefix}volume_norm'] = volume / roll_vol
+
+    # VWAP Norm intentionally omitted if raw data lacks vwap or to simplify, 
+    # but based on 03_features it was used. If yfinance doesn't provide VWAP, we skip or approx.
+    # yfinance 'Downloads' usually has Open, High, Low, Close, Adj Close, Volume. No VWAP.
+    # We will assume scaler might need it if it was in 03_features.
+    # Calculating approx VWAP from OHLCV?
+    vwap_approx = (df['High'] + df['Low'] + df['Close']) / 3
+    df[f'{prefix}vwap_norm'] = vwap_approx / close
+
+    return df
+
+def calculate_features(df_dict, scaler_feature_names):
+    """
+    Replicates the exact feature engineering pipeline using the dictionary of DataFrames.
+    df_dict: { 'QQQ': df_qqq, 'NVDA': df_nvda, ... }
+    scaler_feature_names: list of feature names the scaler expects.
+    Returns: DataFrame with correct columns for inference.
+    """
+
+    # 1. Process QQQ Core Features
+    df_qqq = df_dict["QQQ"].copy()
+    close_q = df_qqq["Close"]
+    volume_q = df_qqq["Volume"]
+
+    # EMAs
+    df_qqq["ema_5"] = close_q.ewm(span=5, adjust=False).mean()
+    df_qqq["ema_10"] = close_q.ewm(span=10, adjust=False).mean() # Likely needed
+    df_qqq["ema_20"] = close_q.ewm(span=20, adjust=False).mean()
+
+    # Core Features
+    df_qqq["ema_diff"] = df_qqq["ema_5"] - df_qqq["ema_20"]
+    df_qqq["return_5"] = close_q.pct_change(5)
+    df_qqq["return_15"] = close_q.pct_change(15) # Likely needed
+    df_qqq["return_30"] = close_q.pct_change(30) # Likely needed
+    df_qqq["realized_vol_10"] = close_q.pct_change().rolling(10).std()
+
+    # Volume
+    vol_mean_60 = volume_q.rolling(60).mean()
+    df_qqq["volume_norm"] = volume_q / vol_mean_60
+    df_qqq["volume_acceleration"] = df_qqq["volume_norm"].diff(5)
+    df_qqq["volume_spike"] = (df_qqq["volume_norm"] > 2.0).astype(int)
+
+    # Spread / Efficiency
+    df_qqq["bid_ask_spread_proxy"] = (df_qqq["High"] - df_qqq["Low"]) / close_q
+
+    # Efficiency Ratio
+    high_5 = df_qqq["High"].rolling(5).max()
+    low_5 = df_qqq["Low"].rolling(5).min()
+    rng = (high_5 - low_5).replace(0, np.nan)
+    df_qqq["efficiency_ratio"] = close_q.diff(5).abs() / rng
+
+    # Regime
+    df_qqq["overextended_up"] = (close_q > df_qqq["ema_20"] * 1.005).astype(int)
+    df_qqq["overextended_down"] = (close_q < df_qqq["ema_20"] * 0.995).astype(int)
+
+    # RSI Proxy
+    ret5 = df_qqq["return_5"]
+    roll_mean = ret5.rolling(10).mean()
+    roll_std = ret5.rolling(10).std().replace(0, np.nan)
+    rs_safe = (roll_mean / roll_std).clip(-10, 10)
+    df_qqq["rsi_proxy"] = (100 - 100 / (1 + rs_safe)).clip(0, 100)
+
+    # Vol Regime
+    vol = df_qqq["realized_vol_10"]
+    df_qqq["high_vol_regime"] = (vol > vol.rolling(100, min_periods=50).quantile(0.8)).astype(int)
+
+    # Time Features
+    # Convert index to ET to match training data logic
+    if df_qqq.index.tz is None:
+        idx_et = df_qqq.index # Assume already ET from fetch
     else:
-        if API_KEY and SECRET_KEY:
-            try:
-                api = TradingClient(API_KEY, SECRET_KEY, paper=True)
-                print("✅ Connected to Alpaca.")
-            except Exception as e:
-                print(f"❌ Connection Failed: {e}")
-                sys.exit(1)
-        else:
-            print("❌ No API Keys found.")
-            sys.exit(1)
+        idx_et = df_qqq.index.tz_convert('US/Eastern')
 
-    # 2. Model
+    df_qqq["minute_of_day"] = idx_et.hour * 60 + idx_et.minute
+    df_qqq["is_9_30_10_00"] = ((idx_et.hour == 9) & (idx_et.minute >= 30) & (idx_et.minute < 60)).astype(int)
+    df_qqq["is_15_30_16_00"] = ((idx_et.hour == 15) & (idx_et.minute >= 30)).astype(int)
+
+    # 2. Process Tech Features
+    tech_dfs = {}
+    tech_return_cols = []
+
+    for sym in TECH_SYMBOLS:
+        if sym in df_dict:
+            dft = engineer_tech_features_full(df_dict[sym], sym)
+            tech_dfs[sym] = dft
+
+            # Track return col for cross-asset
+            col_ret = f"{sym}_return_5"
+            if col_ret in dft.columns:
+                tech_return_cols.append(col_ret)
+
+    # Merge everything to Master
+    df_master = df_qqq.copy()
+    for sym, dft in tech_dfs.items():
+        # Join on index (inner)
+        # We need to only keep the relevant columns to avoid collision if any?
+        # Tech cols are prefixed, so safe.
+        df_master = df_master.join(dft, rsuffix='_dup')
+        # Drop dups if any
+        # df_master = df_master.loc[:, ~df_master.columns.str.endswith('_dup')]
+
+    # 3. Cross-Asset Features
+    # Re-calculate on master to ensure alignment
+    # (Checking if columns exist in master)
+    present_tech_ret_cols = [c for c in tech_return_cols if c in df_master.columns]
+
+    if present_tech_ret_cols:
+        avg_tech_return = df_master[present_tech_ret_cols].mean(axis=1)
+        df_master["relative_strength"] = df_master["return_5"] - avg_tech_return
+
+        tech_signs = np.sign(df_master[present_tech_ret_cols])
+        sign_qqq = np.sign(df_master["return_5"])
+        # summing boolean gives count of True
+        df_master["tech_unanimity"] = tech_signs.eq(sign_qqq, axis=0).sum(axis=1) / len(present_tech_ret_cols)
+
+        df_master["momentum_spread_5"] = df_master[present_tech_ret_cols].std(axis=1)
+
+        divergences = df_master[present_tech_ret_cols].sub(df_master["return_5"], axis=0)
+        df_master["max_divergence"] = divergences.abs().max(axis=1)
+
+        # Divergence specific
+        for sym in TECH_SYMBOLS:
+            col_ret = f"{sym}_return_5"
+            if col_ret in df_master.columns:
+                df_master[f"divergence_{sym}_QQQ_5"] = df_master[col_ret] - df_master["return_5"]
+
+    # Correlation
+    if "NVDA_return_5" in df_master.columns:
+        df_master["corr_QQQ_NVDA_15"] = df_master["return_5"].rolling(15).corr(df_master["NVDA_return_5"])
+        df_master["low_corr_regime"] = (df_master["corr_QQQ_NVDA_15"] < 0.5).astype(int)
+
+    if "NVDA_volume_norm" in df_master.columns:
+        df_master["nvda_volume_anomaly"] = df_master["NVDA_volume_norm"] # alias if needed based on 03_features
+
+    # Fill NaNs
+    df_master = df_master.ffill().fillna(0.0)
+
+    # 4. Filter to Scaler Expected Columns
+    # Create missing columns with 0.0
+    for feature in scaler_feature_names:
+        if feature not in df_master.columns:
+            # print(f"⚠️ Warning: Missing feature {feature}, filling 0.")
+            df_master[feature] = 0.0
+
+    # Return only the needed columns in correct order along with index
+    return df_master[scaler_feature_names]
+
+# --- Data Fetching ---
+def fetch_live_data():
+    """
+    Fetches last 5 days of 1-minute data for all symbols.
+    Returns dictionary of DataFrames.
+    """
+    data = {}
+    print(f"[{datetime.datetime.now()}] Fetching data...")
+
+    # yfinance allows fetching multiple tickers at once
+    tickers = " ".join(SYMBOLS_DATA)
     try:
-        scaler = joblib.load(SCALER_PATH)
-        in_dim = len(MODEL_FEATURES)
-        model = MultiHorizonMLP(in_dim=in_dim, out_dim=3)
-        state = torch.load(MODEL_PATH, map_location='cpu')
-        model.load_state_dict(state)
-        model.eval()
-        print("✅ Model Locked & Loaded.")
+        # Fetch 5 days to ensure enough history for rolling windows
+        df_all = yf.download(tickers, period="5d", interval="1m", progress=False, group_by='ticker', auto_adjust=False)
+
+        # Determine if we have MultiIndex columns (if >1 ticker)
+        if len(SYMBOLS_DATA) > 1:
+            for sym in SYMBOLS_DATA:
+                try:
+                    df_sym = df_all[sym].copy()
+
+                    # Basic cleanup
+                    if df_sym.empty:
+                        print(f"⚠️ Warning: No data for {sym}")
+                        continue
+
+                    # Filter RTH (09:30 - 16:00 US/Eastern)
+                    # Convert to ET if not already
+                    if df_sym.index.tz is None:
+                        df_sym.index = df_sym.index.tz_localize('UTC').tz_convert('US/Eastern')
+                    else:
+                        df_sym.index = df_sym.index.tz_convert('US/Eastern')
+
+                    # Filter logic: between_time is convenient
+                    df_sym = df_sym.between_time('09:30', '16:00')
+
+                    data[sym] = df_sym
+                except Exception as e:
+                    print(f"Error processing {sym}: {e}")
+        else:
+            # Single ticker handling (just in case)
+            pass 
+
     except Exception as e:
-        print(f"❌ Model Load Error: {e}")
+        print(f"Critical Error fetching data: {e}")
+        return None
+
+    # Align Timestamps (Inner Join)
+    if not data:
+        return None
+
+    common_index = data[SYMBOL_TRADE].index
+    for sym in data:
+        common_index = common_index.intersection(data[sym].index)
+
+    aligned_data = {}
+    for sym in data:
+        aligned_data[sym] = data[sym].loc[common_index]
+
+    return aligned_data
+
+# --- Trading Helper ---
+def check_signals(alpaca_client, model, scaler):
+    # 0. Check Market Status
+    try:
+        clock = alpaca_client.get_clock()
+        if not clock.is_open:
+            print(f"[{datetime.datetime.now()}] Market is CLOSED. Next open: {clock.next_open}")
+            # Optional: Decide if you want to exit or just wait. 
+            # For a deployment loop, we might just print and return (wait for next minute)
+            return
+    except Exception as e:
+        print(f"Error checking market clock: {e}")
+
+    # 1. Get Data
+    data_dict = fetch_live_data()
+    if not data_dict or SYMBOL_TRADE not in data_dict:
+        print("Data fetch failed or incomplete.")
+        return
+
+    # Dynamic Feature Selection from Scaler
+    if hasattr(scaler, "feature_names_in_"):
+        expected_features = list(scaler.feature_names_in_)
+    else:
+        # If scaler doesn't have names (unlikely if joblib loaded), assume X_raw columns match scaler order
+        # But for robustness, we really need the scaler names to map back.
+        # Fallback: assume X_raw has correct columns?
+        expected_features = list(data_dict[SYMBOL_TRADE].columns) # Placeholder, likely wrong.
+
+    df_features = calculate_features(data_dict, expected_features)
+
+    if df_features.empty:
+        print("Feature DataFrame empty.")
+        return
+
+    last_row = df_features.iloc[[-1]] # DataFrame (1, 63)
+    timestamp = last_row.index[0]
+
+    # 3. Model Inference
+    try:
+        # Scale (returns numpy array)
+        X_scaled_np = scaler.transform(last_row) # (1, 63)
+
+        # Convert back to DataFrame to select model features by name
+        if hasattr(scaler, "feature_names_in_"):
+            X_scaled_df = pd.DataFrame(X_scaled_np, columns=scaler.feature_names_in_)
+        else:
+            # Dangerous fallback: assume the first 19 columns if scaler has no names (unlikely)
+            X_scaled_df = pd.DataFrame(X_scaled_np, columns=expected_features) # using calculate_features output structure
+
+        # Select the 19 model features
+        # Ensure all are present
+        missing = [f for f in MODEL_FEATURES if f not in X_scaled_df.columns]
+        if missing:
+             # Try to fill? or Error. 
+             # Scaler input had them? calculate_features takes 'expected_features'.
+             # If MODEL_FEATURES are NOT in 'expected_features' (scaler features), then we have a problem.
+             # But 'sample_X_train_scaled.csv' (19) implies they ARE in scaler output?
+             # Wait. If scaler was fit on 63 features, and 'sample...' has 19.
+             # Does 'sample...' come directly from scaler output? No, it's POST-SELECTION.
+             # So the features MUST be in the scaler's output.
+             print(f"Missing model features in scaled data: {missing}")
+             return
+
+        X_model_input = X_scaled_df[MODEL_FEATURES].values # (1, 19)
+        X_tensor = torch.FloatTensor(X_model_input)
+
+        model.eval()
+        with torch.no_grad():
+            logits = model(X_tensor)
+            # Output is [1, 3]: 0=5m, 1=15m, 2=30m
+            logit_15m = logits[0, 1].item()
+            prob = 1 / (1 + np.exp(-logit_15m)) # Sigmoid
+
+        print(f"[{timestamp}] QQQ Close: {data_dict['QQQ']['Close'].iloc[-1]:.2f} | P(up_15m): {prob:.4f}")
+
+    except Exception as e:
+        print(f"Inference Error: {e}")
+        return
+
+    # 4. Trading Logic
+    try:
+        # Check current position
+        try:
+            position = alpaca_client.get_open_position(SYMBOL_TRADE)
+        except Exception:
+            # likely api error or no position (404)
+            position = None
+
+        # Define current time
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        # BUY LOGIC
+        if prob >= PROB_THRESHOLD:
+            if not position:
+                # Check for pending orders to avoid stacks
+                from alpaca.trading.requests import GetOrdersRequest
+                req_pending = GetOrdersRequest(status='open', symbols=[SYMBOL_TRADE], side=OrderSide.BUY)
+                pending_orders = alpaca_client.get_orders(req_pending)
+
+                if not pending_orders:
+                    print(f"🚀 SIGNAL: BUY QQQ (Prob {prob:.4f} >= {PROB_THRESHOLD})")
+                    req = MarketOrderRequest(
+                        symbol=SYMBOL_TRADE,
+                        qty=1,
+                        side=OrderSide.BUY,
+                        time_in_force=TimeInForce.DAY
+                    )
+                    alpaca_client.submit_order(req)
+                else:
+                    print(f"Signal BUY, but order already pending ({len(pending_orders)}). Waiting for fill.")
+            else:
+                print("Signal BUY, but already holding position.")
+
+        # HOLD/SELL LOGIC (Time-based exit)
+        if position:
+            # Check duration
+            # Get latest filled BUY order for this symbol
+            # For simplicity in this script, getting orders via client:
+            from alpaca.trading.requests import GetOrdersRequest, GetOrdersResponse
+            from alpaca.trading.requests import GetOrdersRequest
+
+            req_orders = GetOrdersRequest(status='filled', side=OrderSide.BUY, symbols=[SYMBOL_TRADE], limit=1)
+            req_orders = GetOrdersRequest(status='closed', side=OrderSide.BUY, symbols=[SYMBOL_TRADE], limit=5)
+            orders = alpaca_client.get_orders(req_orders)
+
+            if orders:
+                last_buy = orders[0]
+            # Find the most recent filled order (skip cancelled/expired)
+            last_buy = next((o for o in orders if o.filled_at is not None), None)
+            
+            if last_buy:
+                filled_at = last_buy.filled_at # datetime
+
+                # Check timezone awareness to avoid cryptic errors
+                if filled_at.tzinfo is None:
+                    filled_at = filled_at.replace(tzinfo=datetime.timezone.utc)
+
+                duration = now - filled_at
+                minutes_held = duration.total_seconds() / 60
+
+                print(f"Position held for {minutes_held:.1f} minutes.")
+
+                if minutes_held >= HOLD_DURATION_MINUTES:
+                    print(f"⏰ TIME EXIT: Selling QQQ (Held > {HOLD_DURATION_MINUTES}m)")
+                    req_sell = MarketOrderRequest(
+                        symbol=SYMBOL_TRADE,
+                        qty=position.qty,
+                        side=OrderSide.SELL,
+                        time_in_force=TimeInForce.DAY
+                    )
+                    alpaca_client.submit_order(req_sell)
+            else:
+                print("Holding position (Entry time unknown).")
+
+        else:
+            if prob < PROB_THRESHOLD:
+                print("No Signal (Hold/Wait).")
+
+    except Exception as e:
+        print(f"Trading Error: {e}")
+
+# --- Main Execution ---
+def main():
+    print("--- Alapca Paper Trading Deployment (QQQ) ---")
+
+    # 1. Load Model & Scaler
+    if not os.path.exists(MODEL_PATH) or not os.path.exists(SCALER_PATH):
+        print("❌ Critical: Model or Scaler not found.")
         sys.exit(1)
 
-    # 3. Helpers
-    data_provider = DataProvider(use_alpaca=EXEC_OPTS.get("USE_ALPACA_DATA", False))
-    manager = TradingManager(api, model, scaler)
-    
-    print("Waiting for next minute...")
-    
-    # 4. Loop
-    while True:
-        # Simple mechanism to run once per minute
-        # Wait for seconds == 01 to allow data to settle
-        # In prod, use standard wait or cron
-        t = datetime.datetime.now(pytz.utc)
-        
-        # Data Fetch
-        data_dict = data_provider.fetch_data()
-        if not data_dict or SYMBOL not in data_dict:
-            print("Tick: Data not available.")
-            time.sleep(10)
-            continue
-            
-        df_latest = data_dict[SYMBOL]
-        current_price = df_latest["Close"].iloc[-1]
-        current_time = df_latest.index[-1] # This is likely 16:00 if market closed, or latest minute
-        
-        # Calculate Features
-        if hasattr(scaler, "feature_names_in_"):
-            feats = list(scaler.feature_names_in_)
-        else:
-            # Fallback if scaler metadata missing (unlikely)
-            print("Scaler metadata missing, cannot process.")
-            time.sleep(60)
-            continue
-            
-        df_features = FeatureEngineer.calculate(data_dict, feats)
-        
-        if not df_features.empty:
-            last_row = df_features.iloc[[-1]]
-            
-            # Inference
-            try:
-                x_np = scaler.transform(last_row)
-                x_df = pd.DataFrame(x_np, columns=feats)
-                # Filter model features
-                x_model = x_df[MODEL_FEATURES].values
-                x_tensor = torch.FloatTensor(x_model)
-                
-                with torch.no_grad():
-                    logits = model(x_tensor)
-                    prob = 1 / (1 + np.exp(-logits[0, 1].item()))
-                    
-                    
-                # Trading Logic
-                print(f"[{current_time}] Price: {current_price:.2f} | Prob(Up): {prob:.4f}")
-                
-                # 1. Manage Exits
-                manager.check_exits(current_price, current_time)
-                
-                # 2. Check Entries
-                threshold = TRADING_OPTS.get("PROB_THRESHOLD", 0.55)
-                if prob >= threshold:
-                    manager.entry_signal(prob, current_price, current_time)
-                    
-            except Exception as e:
-                print(f"Inference/Logic Error: {e}")
-                import traceback
-                traceback.print_exc()
+    try:
+        scaler = joblib.load(SCALER_PATH)
+        # Instantiate Model
+        # We need input dim from scaler
+        if hasattr(scaler, "n_features_in_"):
+            # Scaler has 63, but model uses subset
+            pass
 
-        # Coarse Wait
-        # Wait until next minute
-        now = datetime.datetime.now()
-        sleep_sec = 60 - now.second + 2 # +2s buffer
-        time.sleep(sleep_sec)
+        in_dim = len(MODEL_FEATURES) # 19
+
+        # Revert to 3 outputs as per MultiHorizonMLP definition in 07
+        model = MultiHorizonMLP(in_dim=in_dim, out_dim=3)
+        # Load Weights
+        # map_location='cpu' is safer for deployment if no GPU
+        state_dict = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
+        model.load_state_dict(state_dict)
+        print("✅ Model and Scaler loaded.")
+    except Exception as e:
+        print(f"❌ Error loading artifacts: {e}")
+        sys.exit(1)
+
+    # 2. Init Alpaca
+    if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
+        print("❌ Critical: ALPACA_API_KEY or ALPACA_SECRET_KEY not set.")
+        # For dry-run testing purposes
+        if "--dry-run" in sys.argv:
+            print("⚠️ Dry Run mode with no Keys - skipping API init.")
+            api = None
+        else:
+            sys.exit(1)
+    else:
+        try:
+            api = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
+            account = api.get_account()
+            print(f"✅ Connected to Alpaca Paper Trading. Status: {account.status}")
+        except Exception as e:
+            print(f"❌ Alpaca Connection Error: {e}")
+            if "--dry-run" in sys.argv:
+                api = None
+            else:
+                sys.exit(1)
+
+    # 3. Loop
+    print("🚀 Starting Trading Loop...")
+    while True:
+        if api:
+            check_signals(api, model, scaler)
+        else:
+            # Dry run loop
+            data = fetch_live_data()
+            if data:
+                # determine expected features
+                if hasattr(scaler, "feature_names_in_"):
+                    expected_features = list(scaler.feature_names_in_)
+                else:
+                    expected_features = ESSENTIAL_FEATURES
+
+                df_feat = calculate_features(data, expected_features)
+                if not df_feat.empty:
+                    print(f"Dry Run: Latest features calculated. Index: {df_feat.index[-1]}")
+
+                    # Also try inference for dry run
+                    last_row = df_feat.iloc[[-1]]
+                    X_raw = last_row
+
+                    try:
+                        X_scaled_np = scaler.transform(X_raw)
+                        if hasattr(scaler, "feature_names_in_"):
+                            X_scaled_df = pd.DataFrame(X_scaled_np, columns=scaler.feature_names_in_)
+                        else:
+                            X_scaled_df = pd.DataFrame(X_scaled_np, columns=expected_features)
+
+                        # Select 19
+                        X_model_input = X_scaled_df[MODEL_FEATURES].values
+                        X_tensor = torch.FloatTensor(X_model_input)
+
+                        model.eval()
+                        with torch.no_grad():
+                            logits = model(X_tensor)
+                            logit_15m = logits[0, 1].item()
+                            prob = 1 / (1 + np.exp(-logit_15m))
+                        print(f"Dry Run Inference: P(up)={prob:.4f}")
+                    except Exception as e:
+                        print(f"Dry Run Inference Failed: {e}")
+
+        # Sleep 60s
+        time.sleep(60)
 
 if __name__ == "__main__":
     main()

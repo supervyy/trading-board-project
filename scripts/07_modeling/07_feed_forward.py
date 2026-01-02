@@ -85,7 +85,7 @@ class MultiHorizonMLP(nn.Module):
     Architektur (angelehnt an das andere Projekt):
     in_dim -> 1024 -> 1024 -> 512 -> 512 -> 256 -> 3
     """
-    def __init__(self, in_dim: int, out_dim: int = 3, dropout_p: float = 0.1):
+    def __init__(self, in_dim: int, out_dim: int = 3, dropout_p: float = 0.5):
         super().__init__()
 
         self.net = nn.Sequential(
@@ -133,7 +133,7 @@ class MultiHorizonMLP(nn.Module):
 # -------------------------------------------------
 def train_model(
     X_train, y_train, X_val, y_val, X_test, y_test,
-    batch_size=2048, epochs=50, lr=1e-3, weight_decay=1e-4, patience=5
+    batch_size=2048, epochs=50, lr=1e-3, weight_decay=1e-3, patience=5
 ):
     train_ds = TensorDataset(X_train, y_train)
     val_ds   = TensorDataset(X_val, y_val)

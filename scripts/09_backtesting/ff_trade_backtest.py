@@ -181,8 +181,11 @@ def main():
     X_test = np.load(X_TEST_PATH)
     df_test["orig_idx"] = np.arange(len(df_test))
     
+    # Calculate EMA 200 on raw data (Trend Filter)
+    df_raw["ema200"] = df_raw["close"].ewm(span=200, adjust=False).mean()
+    
     # Merge Cleanly
-    cols_to_merge = ["timestamp", "open", "high", "low", "close"]
+    cols_to_merge = ["timestamp", "open", "high", "low", "close", "ema200"]
     df_merged = pd.merge(df_test, df_raw[cols_to_merge], on="timestamp", how="inner", suffixes=("", "_raw"))
     df_merged = df_merged.sort_values("timestamp").reset_index(drop=True)
     
@@ -192,6 +195,7 @@ def main():
     print(f"Aligned Data: {len(df_merged)} bars.")
     print(f"Config: Th={args.threshold:.2f}, Hold={args.hold_bars}m, SL={args.sl_pct:.1%}, TP={args.tp_rr:.1f}x")
     print(f"Trailing Stop: {args.trailing_enabled} ({args.trailing_pct:.1%})")
+    print("Trend Filter: EMA 200 enabled")
     
     # 2. Model Inference (Batch)
     print("Running Inference...")
@@ -237,6 +241,7 @@ def main():
         
         # Decide which close to use for mark-to-market.
         close_price = row.get("close_raw", row.get("close", 0.0))
+        ema_200 = row.get("ema200", 0.0)
 
         # Check Exits using NEXT BAR candles (Realistic)
         open_next = next_row["open"]
@@ -277,7 +282,8 @@ def main():
         
         # 2. Check Entry Signal (at Close i) -> Enters at Open i+1
         if len(positions) < args.max_positions:
-            if prob >= args.threshold:
+            # ENTRY CONDITION: Prob > Th AND Price > EMA200
+            if prob >= args.threshold and close_price > ema_200:
                 # Check Cooldown
                 is_cooldown = False
                 if last_trade_time:

@@ -1,19 +1,19 @@
 TRADING:
   SYMBOL: "QQQ"
   PROB_THRESHOLD: 0.55
-  MAX_HOLD_MINUTES: 120  # Optimization: Increased to 2 hours to capture trend
+  MAX_HOLD_MINUTES: 120  # Optimization: 120 mins
   MAX_POSITIONS: 3
   COOLDOWN_MINUTES: 5
   ONE_TRADE_PER_BAR: true
 
 RISK_MANAGEMENT:
   STOP_LOSS_TYPE: "pct"
-  STOP_LOSS_VALUE: 0.005 # Reverted: 0.5% (Tight stop was better)
+  STOP_LOSS_VALUE: 0.004 # Tighter Stop: 0.4% to force exits
   TAKE_PROFIT_TYPE: "rr"
-  TAKE_PROFIT_VALUE: 1.5 # Reverted: 1.5x Risk
-  TRAILING_STOP_ENABLED: true
-  TRAILING_STOP_PCT: 0.003 # Reverted: 0.3% Trailing Stop
-  RISK_PER_TRADE_PCT: 0.005 # Reverted to 0.5%
+  TAKE_PROFIT_VALUE: 1.25 # 1.25 x 0.4% = 0.5% Target (Easier to hit)
+  TRAILING_STOP_ENABLED: false # Disabled Trailing
+  TRAILING_STOP_PCT: 0.005
+  RISK_PER_TRADE_PCT: 0.010 # Increased Risk: 1.0% per Trade
   MAX_NOTIONAL_PCT: 0.20
 
 EXECUTION:

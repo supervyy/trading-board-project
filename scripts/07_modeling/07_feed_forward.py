@@ -85,7 +85,7 @@ class MultiHorizonMLP(nn.Module):
     Architektur (angelehnt an das andere Projekt):
     in_dim -> 1024 -> 1024 -> 512 -> 512 -> 256 -> 3
     """
-    def __init__(self, in_dim: int, out_dim: int = 3, dropout_p: float = 0.1):
+    def __init__(self, in_dim: int, out_dim: int = 3, dropout_p: float = 0.4):
         super().__init__()
 
         self.net = nn.Sequential(

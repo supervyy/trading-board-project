@@ -1,7 +1,7 @@
 # Iteration 1: Verbesserungen an Deployment und Backtesting mit zentraler Trading Konfiguration
-Diese Iteration erhöht Realismus und Steuerbarkeit der Trading Logik. Fokus liegt auf reproduzierbaren Einstellungen, besserem Risiko Management und einer Backtest Simulation, die Stop Loss, Take Profit, Slippage und Gebühren abbildet.
+Diese Iteration erhöht den Realismus und die Steuerbarkeit der Trading Logik durch eine zentrale Konfiguration, verbessertes Risiko Management und ein Backtesting, das Stop Loss, Take Profit, Slippage und Gebühren berücksichtigt.
 
-Geändert wurden Deployment und Backtesting. Zusätzlich kam eine neue Konfigurationsdatei conf/trading.yaml dazu, die beide Bereiche steuert.
+Neben den Änderungen an Deployment und Backtesting wurde `conf/trading.yaml` als gemeinsame Parameterquelle ergänzt. Zusätzlich wurde das Feed Forward Training durch höheres Dropout regularisiert und ein Deployment Vergleich hinzugefügt, um das Verhalten vor und nach der Iteration direkt gegenüberzustellen.
 
 ## 1. Zentrale Trading Konfiguration
 
@@ -81,4 +81,17 @@ Stop Loss und Take Profit intrabar über High und Low geprüft, bei SL und TP in
 [scripts/07_modeling/07_feed_forward.py](scripts/07_modeling/07_feed_forward.py)
 - Dropout Default in MultiHorizonMLP von 0.1 auf 0.4 erhöht
 - Dropout greift in allen Hidden Layers, da nach jedem Block Dropout genutzt wird
-- Ziel: weniger Overfitting, stabilere Validation und robustere Generalisierung
+- **Ziel:** weniger Overfitting, stabilere Validation und robustere Generalisierung
+- **Ergebnis:** Validation Loss ist stabiler, weniger Gap zwischen Training und Validation
+![Train vs Val Loss](images/modeling/feed_forward/06_multihorizon_mlp_loss.png)
+---
+## 5. Deployment Vergleich
+### [scripts/08_deployment/original_deploy_trading.py](scripts/08_deployment/original_deploy_trading.py)
+- **Aufgabe:** Speichert den Deployment Stand vor der Iteration als Referenz, damit Verhalten und Outputs direkt vergleichbar
+- **Logik:** Nutzt feste Trading Parameter im Skript, prob Threshold und feste Haltedauer, Entry und Exit über Market Orders, ohne Stop Loss und Take Profit Bracket Logik
+- **Ergebnis:** Dient als Baseline für die Iteration, um Unterschiede zur neuen deploy_trading.py nachvollziehbar zu machen
+
+### [scripts/08_deployment/run_dual_deployment.py](scripts/08_deployment/run_dual_deployment.py)
+- **Aufgabe:** Führt alte und neue Deployment Version parallel aus, damit Logs in einem Lauf vergleichbar
+- **Logik:** Startet beide Skripte im Dry Run und schreibt die Ausgabe mit Prefix pro Version, damit Signal, Datenstale, Feature Shape und Trigger Verhalten gegenüberstellbar sind
+- **Ergebnis:** Erlaubt einen schnellen A B Vergleich zwischen original_deploy_trading.py und deploy_trading.py ohne echte Trades.

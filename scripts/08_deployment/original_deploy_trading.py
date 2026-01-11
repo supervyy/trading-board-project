@@ -70,7 +70,7 @@ HOLD_DURATION_MINUTES = 15
 
 # Model Paths
 # User requested model from 07_feed_forward
-MODEL_PATH = PROJECT_ROOT / "models" / "feed_forward" / "multihorizon_nn.pt"
+MODEL_PATH = PROJECT_ROOT / "models" / "feed_forward" / "original_multihorizon_nn.pt"
 SCALER_PATH = PROJECT_ROOT / "models" / "scaler.pkl"
 
 # Feature List (Matches training data subset)

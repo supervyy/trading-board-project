@@ -167,8 +167,8 @@ class FeatureEngineer:
         df_qqq["ema_20"] = close.ewm(span=20, adjust=False).mean()
         df_qqq["ema_diff"] = df_qqq["ema_5"] - df_qqq["ema_20"]
         
-        df_qqq["return_5"] = close.pct_change(5)
-        df_qqq["realized_vol_10"] = close.pct_change().rolling(10).std()
+        df_qqq["return_5"] = close.pct_change(5, fill_method=None)
+        df_qqq["realized_vol_10"] = close.pct_change(fill_method=None).rolling(10).std()
         
         # Norm
         vol_mean = vol.rolling(60).mean().replace(0, np.nan)
@@ -196,7 +196,7 @@ class FeatureEngineer:
                 cl = dft["Close"]
                 vl = dft["Volume"]
                 # Prefixed
-                df_qqq[f"{sym}_return_5"] = cl.pct_change(5)
+                df_qqq[f"{sym}_return_5"] = cl.pct_change(5, fill_method=None)
                 # NVDA specific
                 if sym == "NVDA":
                     vm = vl.rolling(60).mean().replace(0, np.nan)
@@ -494,16 +494,33 @@ def main():
                     prob = 1 / (1 + np.exp(-logits[0, 1].item()))
                     
                     
-                # Trading Logic
-                print(f"[{current_time}] Price: {current_price:.2f} | Prob(Up): {prob:.4f}")
+                # Market Open Check
+                is_open = True
+                next_open = None
+                if api:
+                    try:
+                        clock = api.get_clock()
+                        if not clock.is_open:
+                            is_open = False
+                            next_open = clock.next_open
+                    except Exception: pass
                 
-                # 1. Manage Exits
-                manager.check_exits(current_price, current_time)
+                status_str = "OPEN" if is_open else "CLOSED"
+
+                # Standard Output
+                print(f"[{current_time}] Status: {status_str} | Price: {current_price:.2f} | Prob(Up): {prob:.4f}")
                 
-                # 2. Check Entries
-                threshold = TRADING_OPTS.get("PROB_THRESHOLD", 0.55)
-                if prob >= threshold:
-                    manager.entry_signal(prob, current_price, current_time)
+                if is_open:
+                    # 1. Manage Exits
+                    manager.check_exits(current_price, current_time)
+                    
+                    # 2. Check Entries
+                    threshold = TRADING_OPTS.get("PROB_THRESHOLD", 0.55)
+                    if prob >= threshold:
+                        manager.entry_signal(prob, current_price, current_time)
+                else:
+                    if next_open:
+                        print(f"Market Closed. Next Open: {next_open}. Logic skipped.")
                     
             except Exception as e:
                 print(f"Inference/Logic Error: {e}")

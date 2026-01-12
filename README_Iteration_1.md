@@ -5,7 +5,7 @@ Neben den Änderungen an Deployment und Backtesting wurde `conf/trading.yaml` al
 
 ## 1. Zentrale Trading Konfiguration
 
-### [conf/trading.yaml](conf/trading.yaml)
+[conf/trading.yaml](conf/trading.yaml)
 
 *TRADING*
 - `SYMBOL`, Asset das gehandelt wird, zum Beispiel `QQQ`
@@ -30,9 +30,10 @@ Neben den Änderungen an Deployment und Backtesting wurde `conf/trading.yaml` al
 - `SLIPPAGE_BPS`, Slippage Annahme in Basispunkten
 - `FEE_PER_ORDER`, Gebühr pro Order
 - `DRY_RUN`, keine echten Orders, nur Testlauf
----
+
 ## 2. Verbesserungen im Deployment
-### [scripts/08_deployment/deploy_trading.py](scripts/08_deployment/deploy_trading.py)
+[scripts/08_deployment/deploy_trading.py](scripts/08_deployment/deploy_trading.py)
+
 *Konfiguration und Laden*
 
 - Lädt conf/trading.yaml und conf/params.yaml
@@ -65,33 +66,39 @@ Neben den Änderungen an Deployment und Backtesting wurde `conf/trading.yaml` al
 - Respektiert `MAX_POSITIONS`, `COOLDOWN_MINUTES`, `ONE_TRADE_PER_BAR`
 - Exit über Stop Loss, Take Profit, Max Hold, optional Trailing Stop
 - `DRY_RUN` führt nur Logik aus, ohne echte Orders
----
+
 ## 3. Verbesserungen im Backtesting
-### [scripts/09_backtesting/ff_trade_backtest.py](scripts/09_backtesting/ff_trade_backtest.py)
+[scripts/09_backtesting/ff_trade_backtest.py](scripts/09_backtesting/ff_trade_backtest.py)
+
 Vor der Iteration war die Simulation vereinfacht, ohne Stop Loss und Take Profit, mit qty gleich 1 und Exit nur über Max Hold, plus Sprung im Index, um keine Overlaps zuzulassen.
 
 *Neue Simulation Logik*
-- Entry basiert auf Modellwahrscheinlichkeit plus PROB_THRESHOLD aus trading.yaml
+- Entry basiert auf Modellwahrscheinlichkeit plus `PROB_THRESHOLD` aus `conf/trading.yaml`
 Stop Loss und Take Profit intrabar über High und Low geprüft, bei SL und TP in einer Kerze zählt SL zuerst
 - Slippage und Fees werden in den Trade Preis und die PnL Berechnung einbezogen
 - Mehrere parallele Positionen sind möglich, Overlaps werden realistisch simuliert
 - Standardwerte kommen aus `conf/trading.yaml`, so bleiben Deployment und Backtest konsistent
----
+
+**Alt:**![image.png](images/image.png)
+**Neu:**![img.png](images/img.png)
 ## 4. Modelltraining Änderung 
 [scripts/07_modeling/07_feed_forward.py](scripts/07_modeling/07_feed_forward.py)
 - Dropout Default in MultiHorizonMLP von 0.1 auf 0.4 erhöht
 - Dropout greift in allen Hidden Layers, da nach jedem Block Dropout genutzt wird
 - **Ziel:** weniger Overfitting, stabilere Validation und robustere Generalisierung
 - **Ergebnis:** Validation Loss ist stabiler, weniger Gap zwischen Training und Validation
-![Train vs Val Loss](images/modeling/feed_forward/06_multihorizon_mlp_loss.png)
----
+
+**Alt:**![Train vs Val Loss](images/modeling/feed_forward/06_multihorizon_mlp_loss.png)
+**Neu:**![Train vs Val Loss](images/modeling/feed_forward/06_multihorizon_mlp_loss_old.png)
+**Alt:**![img_1.png](images/img_1.png)
+**Neu:**![img_2.png](images/08_ff_trade_backtest_equity.png)
 ## 5. Deployment Vergleich
-### [scripts/08_deployment/original_deploy_trading.py](scripts/08_deployment/original_deploy_trading.py)
+[scripts/08_deployment/original_deploy_trading.py](scripts/08_deployment/original_deploy_trading.py)
 - **Aufgabe:** Speichert den Deployment Stand vor der Iteration als Referenz, damit Verhalten und Outputs direkt vergleichbar
 - **Logik:** Nutzt feste Trading Parameter im Skript, prob Threshold und feste Haltedauer, Entry und Exit über Market Orders, ohne Stop Loss und Take Profit Bracket Logik
 - **Ergebnis:** Dient als Baseline für die Iteration, um Unterschiede zur neuen deploy_trading.py nachvollziehbar zu machen
 
-### [scripts/08_deployment/run_dual_deployment.py](scripts/08_deployment/run_dual_deployment.py)
+[scripts/08_deployment/run_dual_deployment.py](scripts/08_deployment/run_dual_deployment.py)
 - **Aufgabe:** Führt alte und neue Deployment Version parallel aus, damit Logs in einem Lauf vergleichbar
 - **Logik:** Startet beide Skripte im Dry Run und schreibt die Ausgabe mit Prefix pro Version, damit Signal, Datenstale, Feature Shape und Trigger Verhalten gegenüberstellbar sind
 - **Ergebnis:** Erlaubt einen schnellen A B Vergleich zwischen original_deploy_trading.py und deploy_trading.py ohne echte Trades.

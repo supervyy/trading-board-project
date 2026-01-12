@@ -88,10 +88,8 @@ Stop Loss und Take Profit intrabar über High und Low geprüft, bei SL und TP in
 - **Ziel:** weniger Overfitting, stabilere Validation und robustere Generalisierung
 - **Ergebnis:** Validation Loss ist stabiler, weniger Gap zwischen Training und Validation
 
-**Alt:**![Train vs Val Loss](images/modeling/feed_forward/06_multihorizon_mlp_loss.png)
-**Neu:**![Train vs Val Loss](images/modeling/feed_forward/06_multihorizon_mlp_loss_old.png)
-**Alt:**![img_1.png](images/img_1.png)
-**Neu:**![img_2.png](images/08_ff_trade_backtest_equity.png)
+**Neu:**![Train vs Val Loss](images/modeling/feed_forward/06_multihorizon_mlp_loss.png)
+**Alt:**![Train vs Val Loss](images/modeling/feed_forward/06_multihorizon_mlp_loss_old.png)
 ## 5. Deployment Vergleich
 [scripts/08_deployment/original_deploy_trading.py](scripts/08_deployment/original_deploy_trading.py)
 - **Aufgabe:** Speichert den Deployment Stand vor der Iteration als Referenz, damit Verhalten und Outputs direkt vergleichbar
